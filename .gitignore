@@ -1,0 +1,32 @@
+target/
+*.class
+*.jar
+*.war
+*.log
+
+# Maven build output
+# (mvnw, mvnw.cmd, and .mvn/ wrapper files are committed for reproducible builds)
+
+# IDE
+.idea/
+*.iml
+.vscode/
+.classpath
+.project
+.settings/
+
+# OS
+.DS_Store
+
+# Secrets
+.env
+.env.*
+*.pem
+*.key
+service-account*.json
+gha-credentials.json
+
+# Local overrides
+application-local.yml
+application-local.yaml
+application-local.properties

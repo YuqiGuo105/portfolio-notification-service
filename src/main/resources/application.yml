@@ -1,0 +1,133 @@
+spring:
+  application:
+    name: portfolio-notification-service
+
+  datasource:
+    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5432/postgres}
+    username: ${SPRING_DATASOURCE_USERNAME:postgres}
+    password: ${SPRING_DATASOURCE_PASSWORD:postgres}
+    hikari:
+      maximum-pool-size: 8
+      minimum-idle: 1
+      connection-timeout: 10000
+
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+    baseline-on-migrate: true
+
+  kafka:
+    bootstrap-servers: ${KAFKA_BROKERS:localhost:9092}
+    properties:
+      security.protocol: ${KAFKA_SECURITY_PROTOCOL:SASL_SSL}
+      sasl.mechanism: ${KAFKA_SASL_MECHANISM:SCRAM-SHA-256}
+      sasl.jaas.config: org.apache.kafka.common.security.scram.ScramLoginModule required username="${KAFKA_USERNAME:}" password="${KAFKA_PASSWORD:}";
+    consumer:
+      group-id: ${KAFKA_CONSUMER_GROUP:portfolio-notification-consumer-group}
+      auto-offset-reset: earliest
+      enable-auto-commit: false
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      properties:
+        max.poll.records: 50
+        session.timeout.ms: 30000
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.apache.kafka.common.serialization.StringSerializer
+      acks: all
+      retries: 5
+    listener:
+      ack-mode: manual
+      missing-topics-fatal: false
+
+  mail:
+    host: ${SMTP_HOST:smtp.gmail.com}
+    port: ${SMTP_PORT:587}
+    username: ${SMTP_USER:}
+    password: ${SMTP_PASSWORD:}
+    properties:
+      mail:
+        smtp:
+          auth: true
+          starttls:
+            enable: true
+
+server:
+  port: ${SERVER_PORT:8080}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      show-details: when_authorized
+      probes:
+        enabled: true
+
+portfolio:
+  base-url: ${PORTFOLIO_BASE_URL:https://www.yuqi.site}
+  allowed-origins: ${ALLOWED_ORIGINS:https://www.yuqi.site,http://localhost:3000}
+  kafka:
+    content-events-topic: ${KAFKA_TOPIC_CONTENT_EVENTS:portfolio.content-events}
+    dlq-topic: ${KAFKA_TOPIC_DLQ:portfolio.dlq}
+  token:
+    pepper: ${TOKEN_PEPPER:dev-only-pepper-change-me}
+  email:
+    from: ${SMTP_FROM:noreply@yuqi.site}
+    dispatch:
+      interval-ms: ${EMAIL_DISPATCH_INTERVAL_MS:15000}
+      batch-size: ${EMAIL_DISPATCH_BATCH_SIZE:20}
+      max-retry: ${EMAIL_DISPATCH_MAX_RETRY:5}
+
+logging:
+  level:
+    root: INFO
+    site.yuqi.notifications: INFO
+    org.apache.kafka: WARN
+  pattern:
+    console: "{\"ts\":\"%d{yyyy-MM-dd'T'HH:mm:ss.SSSXXX}\",\"level\":\"%level\",\"logger\":\"%logger{36}\",\"thread\":\"%thread\",\"msg\":\"%replace(%msg){'\"','\\\\\"'}\"}%n"
+
+---
+spring:
+  config:
+    activate:
+      on-profile: test
+  flyway:
+    enabled: false
+  sql:
+    init:
+      mode: always
+      schema-locations: classpath:db/test-schema.sql
+      continue-on-error: false
+  kafka:
+    bootstrap-servers: localhost:9092
+    properties:
+      security.protocol: PLAINTEXT
+      sasl.mechanism: ""
+      sasl.jaas.config: ""
+  datasource:
+    url: jdbc:h2:mem:notif;MODE=PostgreSQL;DATABASE_TO_LOWER=TRUE;DEFAULT_NULL_ORDERING=HIGH;DB_CLOSE_DELAY=-1
+    driver-class-name: org.h2.Driver
+    username: sa
+    password: ""
+  mail:
+    host: smtp.example.test
+    port: 25
+    username: test
+    password: test
+
+portfolio:
+  kafka:
+    consumer-enabled: false
+  token:
+    pepper: test-pepper
+  email:
+    from: "test@example.test"
+    dispatch:
+      interval-ms: 600000
+      initial-delay-ms: 600000
+      max-retry: 5
+      batch-size: 20
+

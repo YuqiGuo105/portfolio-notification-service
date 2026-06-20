@@ -1,0 +1,27 @@
+# Local development with Docker Compose.
+# This brings up the notification service against an external Supabase + Aiven Kafka
+# (which are configured via .env). Useful for testing the container build locally.
+#
+# Usage:
+#   docker compose --env-file .env up --build
+
+services:
+  notification-service:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: portfolio-notification-service:local
+    container_name: portfolio-notification-service
+    ports:
+      - "8080:8080"
+    env_file:
+      - .env
+    environment:
+      SERVER_PORT: 8080
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8080/api/health/notification || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 30s

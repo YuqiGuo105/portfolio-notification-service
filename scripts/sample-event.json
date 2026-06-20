@@ -1,0 +1,16 @@
+{
+  "eventId": "evt_01HXYZ",
+  "eventType": "ARTICLE_PUBLISHED",
+  "topic": "ARTICLE_UPDATES",
+  "sourceType": "BLOG",
+  "sourceId": "blog_123",
+  "title": "New article: Kafka Notification System",
+  "summary": "How I built a Kafka-powered notification system for my Portfolio.",
+  "url": "/blog-single/blog_123",
+  "createdAt": "2026-06-20T20:00:00Z",
+  "idempotencyKey": "ARTICLE_PUBLISHED:blog_123:v1",
+  "metadata": {
+    "author": "Yuqi Guo",
+    "site": "yuqi.site"
+  }
+}
