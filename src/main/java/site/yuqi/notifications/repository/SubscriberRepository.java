@@ -1,6 +1,6 @@
 package site.yuqi.notifications.repository;
 
-import org.springframework.beans.factory.annotation.Autowired;
+import lombok.RequiredArgsConstructor;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
 import site.yuqi.notifications.domain.Subscriber;
@@ -10,14 +10,10 @@ import java.util.Optional;
 import java.util.UUID;
 
 @Repository
+@RequiredArgsConstructor
 public class SubscriberRepository {
 
     private final JdbcTemplate jdbc;
-
-    @Autowired
-    public SubscriberRepository(JdbcTemplate jdbc) {
-        this.jdbc = jdbc;
-    }
 
     /**
      * Insert by email; if email exists, update both token hashes and bump status to ACTIVE.

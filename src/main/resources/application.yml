@@ -14,7 +14,11 @@ spring:
   flyway:
     enabled: true
     locations: classpath:db/migration
+    # The Supabase `public` schema already contains existing Portfolio tables
+    # (blogs, life_blogs, cv_content, …) that pre-date this service. We must
+    # baseline at version 0 so V1__initial_schema.sql actually runs.
     baseline-on-migrate: true
+    baseline-version: 0
 
   kafka:
     bootstrap-servers: ${KAFKA_BROKERS:localhost:9092}
@@ -69,6 +73,11 @@ management:
 portfolio:
   base-url: ${PORTFOLIO_BASE_URL:https://www.yuqi.site}
   allowed-origins: ${ALLOWED_ORIGINS:https://www.yuqi.site,http://localhost:3000}
+  # Shared-secret header (X-Internal-Token) required on all /api/subscriptions/* and
+  # /api/notifications/* requests. The Next.js Portfolio proxy injects this header
+  # server-side; user browsers must NEVER see this value. Generate with:
+  #   openssl rand -hex 32
+  internal-token: ${INTERNAL_API_TOKEN:}
   kafka:
     content-events-topic: ${KAFKA_TOPIC_CONTENT_EVENTS:portfolio.content-events}
     dlq-topic: ${KAFKA_TOPIC_DLQ:portfolio.dlq}
@@ -123,6 +132,7 @@ portfolio:
     consumer-enabled: false
   token:
     pepper: test-pepper
+  internal-token: "test-internal-token"
   email:
     from: "test@example.test"
     dispatch:

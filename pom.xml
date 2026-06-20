@@ -23,6 +23,12 @@
         <java.version>21</java.version>
         <maven.compiler.release>21</maven.compiler.release>
         <spring-kafka.version>3.2.4</spring-kafka.version>
+        <!--
+          Spring Boot 3.3.4 ships Lombok 1.18.34, which does not understand
+          Java 25's class-file format. The local toolchain on this machine is
+          Temurin 25, so we override to a Lombok release that knows Java 25.
+        -->
+        <lombok.version>1.18.38</lombok.version>
     </properties>
 
     <dependencies>
@@ -71,6 +77,13 @@
             <artifactId>spring-boot-starter-mail</artifactId>
         </dependency>
 
+        <!-- Lombok (compile-only; annotation processor) -->
+        <dependency>
+            <groupId>org.projectlombok</groupId>
+            <artifactId>lombok</artifactId>
+            <optional>true</optional>
+        </dependency>
+
         <!-- Test -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
@@ -92,6 +105,20 @@
     <build>
         <finalName>portfolio-notification-service</finalName>
         <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-compiler-plugin</artifactId>
+                <configuration>
+                    <release>21</release>
+                    <annotationProcessorPaths>
+                        <path>
+                            <groupId>org.projectlombok</groupId>
+                            <artifactId>lombok</artifactId>
+                            <version>${lombok.version}</version>
+                        </path>
+                    </annotationProcessorPaths>
+                </configuration>
+            </plugin>
             <plugin>
                 <groupId>org.springframework.boot</groupId>
                 <artifactId>spring-boot-maven-plugin</artifactId>

@@ -1,6 +1,6 @@
 package site.yuqi.notifications.repository;
 
-import org.springframework.beans.factory.annotation.Autowired;
+import lombok.RequiredArgsConstructor;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
 import site.yuqi.notifications.domain.SubscriptionPreference;
@@ -9,14 +9,10 @@ import java.util.List;
 import java.util.UUID;
 
 @Repository
+@RequiredArgsConstructor
 public class SubscriptionPreferenceRepository {
 
     private final JdbcTemplate jdbc;
-
-    @Autowired
-    public SubscriptionPreferenceRepository(JdbcTemplate jdbc) {
-        this.jdbc = jdbc;
-    }
 
     /**
      * Upsert (subscriber_id, topic) → flags.

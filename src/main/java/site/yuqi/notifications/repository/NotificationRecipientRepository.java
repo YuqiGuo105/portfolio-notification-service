@@ -1,6 +1,6 @@
 package site.yuqi.notifications.repository;
 
-import org.springframework.beans.factory.annotation.Autowired;
+import lombok.RequiredArgsConstructor;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
 import site.yuqi.notifications.domain.NotificationRecipientRow;
@@ -14,14 +14,10 @@ import java.util.List;
 import java.util.UUID;
 
 @Repository
+@RequiredArgsConstructor
 public class NotificationRecipientRepository {
 
     private final JdbcTemplate jdbc;
-
-    @Autowired
-    public NotificationRecipientRepository(JdbcTemplate jdbc) {
-        this.jdbc = jdbc;
-    }
 
     /**
      * Insert recipient row; if idempotency_key already exists, treat as no-op.

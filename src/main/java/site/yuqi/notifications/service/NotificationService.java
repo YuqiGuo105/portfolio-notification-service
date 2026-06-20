@@ -1,6 +1,6 @@
 package site.yuqi.notifications.service;
 
-import org.springframework.beans.factory.annotation.Autowired;
+import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import site.yuqi.notifications.domain.NotificationRecipientRow;
@@ -14,19 +14,13 @@ import java.util.List;
 import java.util.UUID;
 
 @Service
+@RequiredArgsConstructor
 public class NotificationService {
 
     private static final int DEFAULT_LIMIT = 50;
 
     private final SubscriptionService subscriptionService;
     private final NotificationRecipientRepository recipientRepo;
-
-    @Autowired
-    public NotificationService(SubscriptionService subscriptionService,
-                               NotificationRecipientRepository recipientRepo) {
-        this.subscriptionService = subscriptionService;
-        this.recipientRepo = recipientRepo;
-    }
 
     public NotificationListResponse listForSubscriber(UUID subscriberId, String token, boolean unreadOnly) {
         Subscriber subscriber = subscriptionService.verify(subscriberId, token);

@@ -1,6 +1,6 @@
 package site.yuqi.notifications.repository;
 
-import org.springframework.beans.factory.annotation.Autowired;
+import lombok.RequiredArgsConstructor;
 import org.springframework.dao.EmptyResultDataAccessException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
@@ -9,14 +9,10 @@ import java.util.Optional;
 import java.util.UUID;
 
 @Repository
+@RequiredArgsConstructor
 public class ContentEventAuditRepository {
 
     private final JdbcTemplate jdbc;
-
-    @Autowired
-    public ContentEventAuditRepository(JdbcTemplate jdbc) {
-        this.jdbc = jdbc;
-    }
 
     public static record AuditSummary(UUID id, String status, int retryCount) {}
 

@@ -1,7 +1,7 @@
 package site.yuqi.notifications.controller;
 
 import jakarta.validation.Valid;
-import org.springframework.beans.factory.annotation.Autowired;
+import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -18,14 +18,10 @@ import java.util.Map;
 
 @RestController
 @RequestMapping("/api/subscriptions")
+@RequiredArgsConstructor
 public class SubscriptionController {
 
     private final SubscriptionService service;
-
-    @Autowired
-    public SubscriptionController(SubscriptionService service) {
-        this.service = service;
-    }
 
     @PostMapping
     public ResponseEntity<SubscribeResponse> subscribe(@Valid @RequestBody SubscribeRequest req) {

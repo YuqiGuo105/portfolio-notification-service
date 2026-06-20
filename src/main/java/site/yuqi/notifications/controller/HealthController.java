@@ -1,6 +1,6 @@
 package site.yuqi.notifications.controller;
 
-import org.springframework.beans.factory.annotation.Autowired;
+import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -14,6 +14,7 @@ import java.util.Map;
 
 @RestController
 @RequestMapping("/api/health")
+@RequiredArgsConstructor
 public class HealthController {
 
     private static final List<String> REQUIRED_TABLES = List.of(
@@ -25,11 +26,6 @@ public class HealthController {
     );
 
     private final JdbcTemplate jdbc;
-
-    @Autowired
-    public HealthController(JdbcTemplate jdbc) {
-        this.jdbc = jdbc;
-    }
 
     @GetMapping("/notification")
     public ResponseEntity<HealthResponse> health() {

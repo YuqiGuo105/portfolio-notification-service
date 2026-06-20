@@ -1,9 +1,7 @@
 package site.yuqi.notifications.service;
 
 import jakarta.mail.internet.MimeMessage;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Autowired;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.dao.DataAccessException;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -19,9 +17,8 @@ import java.util.List;
 import java.util.Map;
 
 @Service
+@Slf4j
 public class EmailDispatchService {
-
-    private static final Logger log = LoggerFactory.getLogger(EmailDispatchService.class);
 
     private final NotificationRecipientRepository recipientRepo;
     private final JdbcTemplate jdbc;
@@ -30,7 +27,6 @@ public class EmailDispatchService {
     private final int batchSize;
     private final int maxRetry;
 
-    @Autowired
     public EmailDispatchService(NotificationRecipientRepository recipientRepo,
                                 JdbcTemplate jdbc,
                                 JavaMailSender mailSender,

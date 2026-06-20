@@ -1,6 +1,6 @@
 package site.yuqi.notifications.service;
 
-import org.springframework.beans.factory.annotation.Autowired;
+import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import site.yuqi.notifications.domain.Channel;
@@ -20,23 +20,13 @@ import java.util.List;
 import java.util.UUID;
 
 @Service
+@RequiredArgsConstructor
 public class SubscriptionService {
 
     private final SubscriberRepository subscriberRepo;
     private final SubscriptionPreferenceRepository prefRepo;
     private final NotificationRecipientRepository recipientRepo;
     private final TokenService tokens;
-
-    @Autowired
-    public SubscriptionService(SubscriberRepository subscriberRepo,
-                               SubscriptionPreferenceRepository prefRepo,
-                               NotificationRecipientRepository recipientRepo,
-                               TokenService tokens) {
-        this.subscriberRepo = subscriberRepo;
-        this.prefRepo = prefRepo;
-        this.recipientRepo = recipientRepo;
-        this.tokens = tokens;
-    }
 
     @Transactional
     public SubscribeResponse subscribe(SubscribeRequest req) {

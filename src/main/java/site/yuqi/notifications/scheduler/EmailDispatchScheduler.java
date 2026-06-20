@@ -1,19 +1,15 @@
 package site.yuqi.notifications.scheduler;
 
-import org.springframework.beans.factory.annotation.Autowired;
+import lombok.RequiredArgsConstructor;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 import site.yuqi.notifications.service.EmailDispatchService;
 
 @Component
+@RequiredArgsConstructor
 public class EmailDispatchScheduler {
 
     private final EmailDispatchService dispatcher;
-
-    @Autowired
-    public EmailDispatchScheduler(EmailDispatchService dispatcher) {
-        this.dispatcher = dispatcher;
-    }
 
     @Scheduled(
             fixedDelayString = "${portfolio.email.dispatch.interval-ms:15000}",

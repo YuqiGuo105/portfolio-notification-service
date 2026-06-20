@@ -2,9 +2,7 @@ package site.yuqi.notifications.service;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Autowired;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -20,9 +18,8 @@ import java.util.List;
 import java.util.UUID;
 
 @Service
+@Slf4j
 public class ContentEventProcessor {
-
-    private static final Logger log = LoggerFactory.getLogger(ContentEventProcessor.class);
 
     private final ContentEventAuditRepository auditRepo;
     private final SubscriptionPreferenceRepository prefRepo;
@@ -31,7 +28,6 @@ public class ContentEventProcessor {
     private final ObjectMapper objectMapper;
     private final String baseUrl;
 
-    @Autowired
     public ContentEventProcessor(ContentEventAuditRepository auditRepo,
                                  SubscriptionPreferenceRepository prefRepo,
                                  NotificationRepository notificationRepo,

@@ -30,3 +30,9 @@ gha-credentials.json
 application-local.yml
 application-local.yaml
 application-local.properties
+
+# Local-only end-to-end scripts (must NEVER be pushed to remote)
+scripts/local-e2e.sh
+scripts/run-local-e2e.sh
+scripts/insert_fake_notification.py
+scripts/db_helper.py

@@ -1,8 +1,6 @@
 package site.yuqi.notifications.kafka;
 
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Autowired;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.stereotype.Component;
@@ -12,14 +10,12 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 
 @Component
+@Slf4j
 public class DlqProducer {
-
-    private static final Logger log = LoggerFactory.getLogger(DlqProducer.class);
 
     private final KafkaTemplate<String, String> kafka;
     private final String dlqTopic;
 
-    @Autowired
     public DlqProducer(KafkaTemplate<String, String> kafka,
                        @Value("${portfolio.kafka.dlq-topic:portfolio.dlq}") String dlqTopic) {
         this.kafka = kafka;
