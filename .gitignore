@@ -34,5 +34,7 @@ application-local.properties
 # Local-only end-to-end scripts (must NEVER be pushed to remote)
 scripts/local-e2e.sh
 scripts/run-local-e2e.sh
+scripts/local-email-test.sh
+scripts/run-local-email-test.sh
 scripts/insert_fake_notification.py
 scripts/db_helper.py

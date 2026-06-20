@@ -26,6 +26,12 @@ spring:
       security.protocol: ${KAFKA_SECURITY_PROTOCOL:SASL_SSL}
       sasl.mechanism: ${KAFKA_SASL_MECHANISM:SCRAM-SHA-256}
       sasl.jaas.config: org.apache.kafka.common.security.scram.ScramLoginModule required username="${KAFKA_USERNAME:}" password="${KAFKA_PASSWORD:}";
+      # When KAFKA_CA_CERT contains a PEM-encoded CA bundle, the Kafka client
+      # uses it as an inline truststore (Kafka 2.7+ feature). Required for
+      # Aiven Kafka because Aiven brokers are signed by a per-project CA that
+      # is NOT in the JVM default cacerts.
+      ssl.truststore.type: ${KAFKA_TRUSTSTORE_TYPE:PEM}
+      ssl.truststore.certificates: ${KAFKA_CA_CERT:}
     consumer:
       group-id: ${KAFKA_CONSUMER_GROUP:portfolio-notification-consumer-group}
       auto-offset-reset: earliest
