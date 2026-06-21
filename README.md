@@ -12,122 +12,28 @@ worker reading from `notification_recipients`.
 
 ## Architecture
 
-### UML sequence — consume an event and deliver an email
-
-End-to-end happy path from an admin publish event to a notification email landing in the
-subscriber's inbox. Kafka acks are manual: the consumer only acks after the DB transaction
-commits. SMTP delivery is fully decoupled via the `notification_recipients` queue.
-
 ```mermaid
-sequenceDiagram
-  autonumber
-  participant AS as admin-service<br/>(publisher)
-  participant K as Aiven Kafka<br/>(portfolio.content-events)
-  participant C as ContentEventConsumer<br/>(@KafkaListener, ack-mode=manual)
-  participant P as ContentEventProcessor
-  participant PG as Supabase Postgres
-  participant DLQ as portfolio.dlq
-  participant S as EmailScheduler<br/>(@Scheduled, fixed delay)
-  participant SMTP as Gmail SMTP
-  actor User as Subscriber
+flowchart TB
+    Admin["portfolio-admin-service<br/>(publisher)"]
+    K[["Kafka<br/>content events"]]
+    Consumer["Notification Consumer"]
+    PG[("Supabase Postgres<br/><br/>subscribers<br/>subscription_preferences<br/>notifications<br/>notification_recipients<br/>content_event_audit")]
+    Scheduler["Email Scheduler"]
+    SMTP(("SMTP / Gmail"))
+    User(("Subscriber"))
 
-  AS->>K: produce ContentPublishedEvent
-  K-->>C: poll(records)
+    Portal["Next.js Portfolio<br/>(server-side proxy)"]
+    REST["Subscription & Notification API"]
 
-  alt parses cleanly
-    C->>P: process(event)
-    rect rgb(245, 248, 255)
-      note over P,PG: Idempotent DB transaction
-      P->>PG: INSERT notifications<br/>ON CONFLICT (idempotency_key) DO NOTHING
-      P->>PG: SELECT subscribers WHERE channel enabled
-      P->>PG: INSERT notification_recipients (state=READY) per subscriber
-      P->>PG: INSERT content_event_audit
-      PG-->>P: COMMIT
-    end
-    P-->>C: Outcome.OK
-    C->>K: ack.acknowledge() (commit offset)
-  else poison-pill / parse failure
-    C->>DLQ: produce raw payload
-    C->>K: ack.acknowledge() (skip + continue)
-  end
+    Admin --> K
+    K --> Consumer
+    Consumer --> PG
+    PG --> Scheduler
+    Scheduler --> SMTP
+    SMTP --> User
 
-  loop every N seconds
-    S->>PG: SELECT notification_recipients<br/>WHERE state='READY' LIMIT batch
-    PG-->>S: batch
-    loop per row
-      S->>SMTP: send email (STARTTLS 587)
-      alt sent
-        SMTP-->>S: 250 OK
-        S->>PG: UPDATE state='SENT', sent_at=now()
-        SMTP-->>User: deliver email
-      else error
-        SMTP-->>S: SMTPException
-        S->>PG: UPDATE state='FAILED', last_error=...
-      end
-    end
-  end
-```
-
-### System context
-
-```mermaid
-flowchart LR
-  subgraph EndUsers["End users"]
-    Browser["Browser<br/>(www.yuqi.site)"]
-    Inbox["Email inbox"]
-  end
-
-  subgraph NextJS["Next.js Portfolio<br/>(yuqi.site)"]
-    Proxy["/api/notifications proxy<br/>(server-side)"]
-  end
-
-  subgraph AdminPlatform["portfolio-admin-service<br/>(separate repo)"]
-    AS["admin-service<br/>publish path"]
-  end
-
-  subgraph Bus["Aiven Kafka (SASL_SSL / SCRAM-SHA-256)"]
-    T1[["content.notification.article-updates.v1<br/>content.notification.feature-updates.v1<br/>content.notification.job-updates.v1<br/><i>(currently bridged via)</i><br/>portfolio.content-events"]]
-    DLQ[["portfolio.dlq"]]
-  end
-
-  subgraph NS["portfolio-notification-service (this repo) :8080"]
-    direction TB
-    REST["REST API<br/>/api/subscriptions/**<br/>/api/notifications/**"]
-    Consumer["ContentEventConsumer<br/>(@KafkaListener,<br/>manual ack)"]
-    Processor["ContentEventProcessor<br/>idempotency + fan-out"]
-    Scheduler["EmailScheduler<br/>(every N seconds)<br/>READY → SENT/FAILED"]
-  end
-
-  subgraph Data["Supabase Postgres (shared)"]
-    Sub[("subscribers")]
-    Pref[("subscription_preferences")]
-    Notif[("notifications")]
-    Recip[("notification_recipients")]
-    Audit[("content_event_audit")]
-  end
-
-  subgraph SMTP["Gmail SMTP (app password)"]
-    Mail(("smtp.gmail.com<br/>:587 STARTTLS"))
-  end
-
-  Browser -->|HTTPS| Proxy
-  Proxy -->|X-Internal-Token<br/>(shared secret)| REST
-  REST --> Sub
-  REST --> Pref
-  REST --> Notif
-
-  AS -->|produce| T1
-  T1 --> Consumer
-  Consumer -->|on poison pill| DLQ
-  Consumer --> Processor
-  Processor -->|insert| Notif
-  Processor -->|fan-out| Recip
-  Processor -->|append| Audit
-
-  Scheduler -->|claim READY rows| Recip
-  Scheduler -->|send| Mail
-  Mail --> Inbox
-  Scheduler -->|mark SENT / FAILED| Recip
+    Portal --> REST
+    REST --> PG
 ```
 
 **Design properties:**
