@@ -1,286 +1,491 @@
-# Portfolio Notification Service
+# portfolio-notification-service
 
-Kafka-driven subscription & notification backend for the [yuqi.site](https://www.yuqi.site) portfolio.
+The notification plane behind [yuqi.site](https://www.yuqi.site). Owns
+**subscribers, subscription preferences, notification fan-out, and email
+delivery** for content published by the admin platform.
 
-Owns the **entire** subscription/notification backend:
-
-| Surface | Responsibility |
-|---|---|
-| REST API | `/api/subscriptions`, `/api/subscriptions/preferences`, `/api/subscriptions/unsubscribe`, `/api/notifications`, `/api/notifications/{id}/read`, `/api/health/notification` |
-| Kafka consumer | Reads `portfolio.content-events`, writes audit + fan-out rows; DLQs invalid events |
-| Email worker | Scheduled scanner that sends EMAIL channel recipients via SMTP |
-| Storage | Supabase Postgres (via JDBC) — Flyway-managed schema |
-
-The Next.js Portfolio repo only ships frontend components (SubscribeDialog, NotificationBell, NotificationDropdown) and thin proxy API routes that forward to this service.
+Single Spring Boot 3.3 service. Stateless on the request path; durable on
+Kafka and Supabase Postgres. Email is delivered out-of-band by a scheduled
+worker reading from `notification_recipients`.
 
 ---
 
-## Stack
+## Architecture
 
-- Java 21, Spring Boot 3.3.4
-- Spring Web, Spring Kafka, Spring JDBC, Spring Mail, Spring Actuator
-- Flyway (Postgres migrations)
-- JUnit 5 + Spring Boot Test + H2 (PostgreSQL mode) for integration tests
-- Maven (with committed Maven Wrapper)
-- Docker (Eclipse Temurin 21 JRE runtime image, non-root)
+### UML sequence — consume an event and deliver an email
+
+End-to-end happy path from an admin publish event to a notification email landing in the
+subscriber's inbox. Kafka acks are manual: the consumer only acks after the DB transaction
+commits. SMTP delivery is fully decoupled via the `notification_recipients` queue.
+
+```mermaid
+sequenceDiagram
+  autonumber
+  participant AS as admin-service<br/>(publisher)
+  participant K as Aiven Kafka<br/>(portfolio.content-events)
+  participant C as ContentEventConsumer<br/>(@KafkaListener, ack-mode=manual)
+  participant P as ContentEventProcessor
+  participant PG as Supabase Postgres
+  participant DLQ as portfolio.dlq
+  participant S as EmailScheduler<br/>(@Scheduled, fixed delay)
+  participant SMTP as Gmail SMTP
+  actor User as Subscriber
+
+  AS->>K: produce ContentPublishedEvent
+  K-->>C: poll(records)
+
+  alt parses cleanly
+    C->>P: process(event)
+    rect rgb(245, 248, 255)
+      note over P,PG: Idempotent DB transaction
+      P->>PG: INSERT notifications<br/>ON CONFLICT (idempotency_key) DO NOTHING
+      P->>PG: SELECT subscribers WHERE channel enabled
+      P->>PG: INSERT notification_recipients (state=READY) per subscriber
+      P->>PG: INSERT content_event_audit
+      PG-->>P: COMMIT
+    end
+    P-->>C: Outcome.OK
+    C->>K: ack.acknowledge() (commit offset)
+  else poison-pill / parse failure
+    C->>DLQ: produce raw payload
+    C->>K: ack.acknowledge() (skip + continue)
+  end
+
+  loop every N seconds
+    S->>PG: SELECT notification_recipients<br/>WHERE state='READY' LIMIT batch
+    PG-->>S: batch
+    loop per row
+      S->>SMTP: send email (STARTTLS 587)
+      alt sent
+        SMTP-->>S: 250 OK
+        S->>PG: UPDATE state='SENT', sent_at=now()
+        SMTP-->>User: deliver email
+      else error
+        SMTP-->>S: SMTPException
+        S->>PG: UPDATE state='FAILED', last_error=...
+      end
+    end
+  end
+```
+
+### System context
+
+```mermaid
+flowchart LR
+  subgraph EndUsers["End users"]
+    Browser["Browser<br/>(www.yuqi.site)"]
+    Inbox["Email inbox"]
+  end
+
+  subgraph NextJS["Next.js Portfolio<br/>(yuqi.site)"]
+    Proxy["/api/notifications proxy<br/>(server-side)"]
+  end
+
+  subgraph AdminPlatform["portfolio-admin-service<br/>(separate repo)"]
+    AS["admin-service<br/>publish path"]
+  end
+
+  subgraph Bus["Aiven Kafka (SASL_SSL / SCRAM-SHA-256)"]
+    T1[["content.notification.article-updates.v1<br/>content.notification.feature-updates.v1<br/>content.notification.job-updates.v1<br/><i>(currently bridged via)</i><br/>portfolio.content-events"]]
+    DLQ[["portfolio.dlq"]]
+  end
+
+  subgraph NS["portfolio-notification-service (this repo) :8080"]
+    direction TB
+    REST["REST API<br/>/api/subscriptions/**<br/>/api/notifications/**"]
+    Consumer["ContentEventConsumer<br/>(@KafkaListener,<br/>manual ack)"]
+    Processor["ContentEventProcessor<br/>idempotency + fan-out"]
+    Scheduler["EmailScheduler<br/>(every N seconds)<br/>READY → SENT/FAILED"]
+  end
+
+  subgraph Data["Supabase Postgres (shared)"]
+    Sub[("subscribers")]
+    Pref[("subscription_preferences")]
+    Notif[("notifications")]
+    Recip[("notification_recipients")]
+    Audit[("content_event_audit")]
+  end
+
+  subgraph SMTP["Gmail SMTP (app password)"]
+    Mail(("smtp.gmail.com<br/>:587 STARTTLS"))
+  end
+
+  Browser -->|HTTPS| Proxy
+  Proxy -->|X-Internal-Token<br/>(shared secret)| REST
+  REST --> Sub
+  REST --> Pref
+  REST --> Notif
+
+  AS -->|produce| T1
+  T1 --> Consumer
+  Consumer -->|on poison pill| DLQ
+  Consumer --> Processor
+  Processor -->|insert| Notif
+  Processor -->|fan-out| Recip
+  Processor -->|append| Audit
+
+  Scheduler -->|claim READY rows| Recip
+  Scheduler -->|send| Mail
+  Mail --> Inbox
+  Scheduler -->|mark SENT / FAILED| Recip
+```
+
+**Design properties:**
+
+1. **REST and Kafka write the same tables, idempotently.** Inserts into
+   `notifications` carry an idempotency key derived from the content event
+   (`{sourceType}:{sourceId}:v{version}`). A second delivery is dropped at
+   the DB layer (`ON CONFLICT DO NOTHING`).
+2. **Manual Kafka acks + DLQ.** `enable-auto-commit: false`,
+   `ack-mode: manual`, `missing-topics-fatal: false`. The consumer only
+   acks after the processor returns `OK`. On a parsing failure it produces
+   to `portfolio.dlq` and acks (poison-pill isolation).
+3. **Email is fully decoupled from the publish path.** Consumer writes
+   `notification_recipients` rows in state `READY`; a scheduled worker
+   claims a batch, sends via SMTP, and updates state. SMTP outages do not
+   block Kafka consumption.
+4. **Shared-secret edge.** All `/api/subscriptions/**` and
+   `/api/notifications/**` calls require `X-Internal-Token`. Browsers
+   never see this header — the Next.js portfolio injects it server-side
+   in its API routes. Swagger UI is gated separately by a Supabase JWT.
+
+---
+
+## Surface responsibilities
+
+| Surface                                | Owner                  |
+|----------------------------------------|------------------------|
+| Subscription CRUD (subscribe / unsub)  | `SubscriptionController` |
+| Subscription preferences               | `SubscriptionController` |
+| Notification feed for a subscriber     | `NotificationController` |
+| Mark notification read                 | `NotificationController` |
+| Health check (DB + Kafka)              | `HealthController` (`/api/health/notification`) + `/actuator/health` |
+| Kafka consume → DB fan-out             | `ContentEventConsumer` + `ContentEventProcessor` |
+| HTTP fallback for content events       | `ContentEventController` (`POST /api/content-events`) |
+| Email delivery worker                  | `EmailScheduler`         |
+| Dead-letter publishing                 | `DlqProducer`            |
+
+---
+
+## Event contract
+
+Inbound events match `portfolio-admin-service`'s `ContentPublishedEvent`:
+
+```json
+{
+  "eventId":     "uuid",
+  "occurredAt":  "2026-06-21T05:00:00Z",
+  "sourceType":  "BLOG | LIFE_BLOG | PROJECT | EXPERIENCE",
+  "sourceId":    "uuid-or-bigint-as-text",
+  "version":     3,
+  "title":       "...",
+  "summary":     "...",
+  "slug":        "...",
+  "publishedAt": "..."
+}
+```
+
+**Topic mapping (admin → notification):**
+
+| `sourceType`               | Logical channel       | Admin-side topic                                   |
+|----------------------------|-----------------------|----------------------------------------------------|
+| `BLOG`, `LIFE_BLOG`        | `ARTICLE_UPDATES`     | `content.notification.article-updates.v1`          |
+| `PROJECT`                  | `FEATURE_UPDATES`     | `content.notification.feature-updates.v1`          |
+| `EXPERIENCE`               | `JOB_UPDATES`         | `content.notification.job-updates.v1`              |
+
+> The consumer in this repo currently listens to
+> **`portfolio.content-events`** (the legacy single-topic stream).
+> Migration to subscribe to all three `content.notification.*.v1` topics is
+> tracked as part of the admin platform rollout — change is a one-line
+> `topics = { ... }` update in `ContentEventConsumer` plus the matching
+> consumer-group ACL on Aiven.
+
+---
+
+## Data model (Supabase, owned by this service)
+
+| Table                       | Purpose                                                                                            |
+|-----------------------------|----------------------------------------------------------------------------------------------------|
+| `subscribers`               | Email + `unsubscribe_token_hash` (HMAC peppered) + `status`                                       |
+| `subscription_preferences`  | `(subscriber_id, channel)` → `enabled` for each of `ARTICLE_UPDATES`, `FEATURE_UPDATES`, `JOB_UPDATES` |
+| `notifications`             | One row per published content event, `idempotency_key` UNIQUE                                      |
+| `notification_recipients`   | Fan-out join: `(notification_id, subscriber_id, state)` with state machine `READY → SENT / FAILED / SKIPPED` |
+| `content_event_audit`       | Append-only — every consumed Kafka event lands here for observability                              |
+
+All migrations live in `src/main/resources/db/migration/` and are applied
+by Flyway on startup (`baseline-on-migrate: true`, `baseline-version: 0`).
+
+---
+
+## REST API
+
+All `/api/subscriptions/**` and `/api/notifications/**` endpoints require:
+
+```
+X-Internal-Token: <INTERNAL_API_TOKEN>
+```
+
+| Method | Path                                              | Notes                                                          |
+|--------|---------------------------------------------------|----------------------------------------------------------------|
+| POST   | `/api/subscriptions`                              | `{email, channels?: [...]}` — upsert + welcome email           |
+| GET    | `/api/subscriptions/preferences?email=`           | Returns current channel toggles                                |
+| PUT    | `/api/subscriptions/preferences`                  | `{email, channels: {ARTICLE_UPDATES:true, ...}}`               |
+| POST   | `/api/subscriptions/unsubscribe`                  | `{token}` — one-click unsubscribe (token from the email)       |
+| GET    | `/api/notifications?email=&unreadOnly=&limit=`    | Subscriber notification feed                                   |
+| POST   | `/api/notifications/{id}/read`                    | Mark single notification read                                  |
+| POST   | `/api/content-events`                             | HTTP fallback that mimics a Kafka event (admin-only)           |
+| GET    | `/api/health/notification`                        | Composite health (DB + Kafka), no auth                         |
+| GET    | `/actuator/health`                                | Spring health, no auth                                         |
+| GET    | `/swagger-ui.html`                                | Gated by Supabase JWT (`Authorization: Bearer <token>`)        |
+
+---
+
+## Runtime topology (production)
+
+| Concern              | Choice                                                                                                |
+|----------------------|-------------------------------------------------------------------------------------------------------|
+| Compute              | Cloud Run (managed), region `us-central1`, project `portfolio-notify-prod`                            |
+| Image registry       | `us-central1-docker.pkg.dev/portfolio-notify-prod/portfolio/portfolio-notification-service`           |
+| Runtime SA           | `notification-runtime@portfolio-notify-prod.iam.gserviceaccount.com`                                  |
+| CI SA / federation   | `ci-deployer@…` via GitHub OIDC → Workload Identity Federation                                        |
+| Database             | Supabase Postgres 15, **IPv6-only DNS**                                                               |
+| Bus                  | Aiven Kafka (SASL_SSL + SCRAM-SHA-256, PEM CA in `KAFKA_CA_CERT`)                                     |
+| Email                | Gmail SMTP, app-password authenticated, STARTTLS on 587                                               |
+| Public URL           | <https://portfolio-notification-service-y45c2mnbja-uc.a.run.app>                                      |
+
+### Networking gotcha — Supabase is IPv6-only
+
+Free-tier `db.<ref>.supabase.co` publishes only an `AAAA` record. The JVM
+default prefers IPv4 and fails with `UnknownHostException`. The Dockerfile
+must include:
+
+```dockerfile
+ENV JAVA_OPTS="-XX:+UseG1GC -XX:MaxRAMPercentage=75 -Djava.net.preferIPv6Addresses=true"
+```
+
+---
+
+## Configuration
+
+| Variable                       | Source        | Notes                                                                 |
+|--------------------------------|---------------|-----------------------------------------------------------------------|
+| `SPRING_DATASOURCE_URL`        | secret        | `jdbc:postgresql://db.<ref>.supabase.co:5432/postgres?sslmode=require` |
+| `SPRING_DATASOURCE_USERNAME`   | secret        |                                                                       |
+| `SPRING_DATASOURCE_PASSWORD`   | secret        |                                                                       |
+| `KAFKA_BOOTSTRAP_SERVERS`      | env           | Aiven `host:port`                                                     |
+| `KAFKA_SECURITY_PROTOCOL`      | env           | `SASL_SSL`                                                            |
+| `KAFKA_SASL_MECHANISM`         | env           | `SCRAM-SHA-256`                                                       |
+| `KAFKA_SASL_JAAS_CONFIG`       | env           | Built at deploy from `KAFKA_USERNAME` + `KAFKA_PASSWORD`              |
+| `KAFKA_TRUSTSTORE_TYPE`        | env           | `PEM`                                                                 |
+| `KAFKA_CA_CERT`                | secret        | Aiven CA in PEM                                                       |
+| `KAFKA_TOPIC_CONTENT_EVENTS`   | env           | default `portfolio.content-events`                                    |
+| `KAFKA_TOPIC_DLQ`              | env           | default `portfolio.dlq`                                               |
+| `MAIL_HOST` / `MAIL_PORT`      | env           | `smtp.gmail.com` / `587`                                              |
+| `MAIL_USERNAME` / `MAIL_PASSWORD` | secret     | App password                                                          |
+| `INTERNAL_API_TOKEN`           | secret        | Shared with Next.js portfolio proxy                                   |
+| `TOKEN_PEPPER`                 | secret        | Used to derive `unsubscribe_token_hash`                               |
+| `SUPABASE_JWT_SECRET`          | secret        | Gates Swagger UI                                                      |
+| `SWAGGER_ALLOWED_EMAILS`       | env           | Comma-separated email allow-list for Swagger                          |
+| `GOOGLE_CLIENT_ID`             | env           | Optional `aud` check on Google ID tokens                              |
+| `PORTFOLIO_BASE_URL`           | env           | `https://www.yuqi.site` — used in email links                         |
+| `ALLOWED_ORIGINS`              | env           | CORS allow-list                                                       |
 
 ---
 
 ## Quickstart (local)
 
-### 1. Apply the schema to Supabase
-
-Flyway will run automatically on service startup if your `SPRING_DATASOURCE_URL` points at Postgres. Alternatively, paste [`src/main/resources/db/migration/V1__initial_schema.sql`](src/main/resources/db/migration/V1__initial_schema.sql) into the Supabase SQL editor.
-
-### 2. Configure env
-
 ```bash
-cp .env.example .env
-# Fill in: Supabase DB password, Aiven Kafka credentials, SMTP credentials, TOKEN_PEPPER
+# 1. Start a Kafka broker (optional — set portfolio.kafka.consumer-enabled=false to skip)
+docker run --rm -p 9092:9092 apache/kafka:3.7.0
+
+# 2. Point at Supabase
+export SPRING_DATASOURCE_URL='jdbc:postgresql://db.<ref>.supabase.co:5432/postgres?sslmode=require'
+export SPRING_DATASOURCE_USERNAME='postgres'
+export SPRING_DATASOURCE_PASSWORD='...'
+
+# 3. SMTP + shared secrets
+export MAIL_USERNAME='yuqi.guo17@gmail.com'
+export MAIL_PASSWORD='<gmail app password>'
+export INTERNAL_API_TOKEN='dev-internal-token-change-me'
+export TOKEN_PEPPER='dev-only-pepper-change-me'
+
+mvn -DskipTests spring-boot:run       # serves on :8080
 ```
 
-### 3. Run
+Smoke:
 
 ```bash
-./mvnw spring-boot:run
-# or
-./mvnw -DskipTests package && java -jar target/portfolio-notification-service.jar
+# Subscribe
+curl -sX POST \
+  -H "X-Internal-Token: $INTERNAL_API_TOKEN" -H 'Content-Type: application/json' \
+  -d '{"email":"you@example.com"}' \
+  http://localhost:8080/api/subscriptions | jq .
+
+# Simulate a content event via HTTP fallback
+curl -sX POST \
+  -H "X-Internal-Token: $INTERNAL_API_TOKEN" -H 'Content-Type: application/json' \
+  -d '{"sourceType":"BLOG","sourceId":"123","version":1,"title":"Hello","summary":"...","slug":"hello"}' \
+  http://localhost:8080/api/content-events
 ```
 
-Health check:
+Expected:
 
-```bash
-curl http://localhost:8080/api/health/notification
-```
-
-### 4. Run tests
-
-```bash
-./mvnw -Dspring.profiles.active=test test
-```
-
-22 tests cover token hashing, event validation, end-to-end fan-out, idempotency, DLQ, unsubscribe, and email backoff.
+- 1 row in `subscribers`, 3 rows in `subscription_preferences`
+- 1 row in `notifications` (idempotent on retry)
+- N rows in `notification_recipients` (one per matching subscriber, `state=READY`)
+- After the scheduler tick: `state=SENT` and an email in the inbox
 
 ---
 
-## API
+## CI / deploy
 
-### `POST /api/subscriptions`
-```json
-{
-  "email": "visitor@example.com",
-  "topics": ["ARTICLE_UPDATES", "FEATURE_UPDATES"],
-  "channels": ["WEB", "EMAIL"]
-}
-```
-Response:
-```json
-{
-  "subscriberId": "uuid",
-  "subscriberToken": "64-hex",
-  "unsubscribeToken": "64-hex",
-  "topics": ["ARTICLE_UPDATES","FEATURE_UPDATES"],
-  "channels": ["WEB","EMAIL"]
-}
-```
-Store `subscriberId` + `subscriberToken` in browser `localStorage`. Only **hashes** are persisted server-side.
+Workflow: `.github/workflows/deploy.yml`. Triggered on push to `main` and
+via `workflow_dispatch`. Steps mirror the admin platform pipeline:
 
-### `PATCH /api/subscriptions/preferences`
-```json
-{
-  "subscriberId": "uuid",
-  "subscriberToken": "raw-token",
-  "preferences": [
-    { "topic": "ARTICLE_UPDATES", "emailEnabled": true, "webEnabled": true }
-  ]
-}
-```
+1. `mvn -B -DskipTests package`
+2. `docker buildx build` + push to Artifact Registry
+3. `gcloud run deploy portfolio-notification-service --image ... --update-secrets ... --set-env-vars ...`
+4. Smoke check on `/actuator/health`
 
-### `POST /api/subscriptions/unsubscribe`
-```json
-{ "token": "unsubscribe-token-from-email" }
-```
-Always 200 (does not leak token validity). When matched: sets subscriber to `UNSUBSCRIBED` and marks pending EMAIL recipients `SKIPPED`.
+### Required GitHub Actions variables
 
-### `GET /api/notifications?subscriberId=...&subscriberToken=...&status=unread`
-Returns recent **WEB** notifications for the subscriber plus `unreadCount`. With `status=unread`, only `PENDING`/`SENT` rows.
+| Variable                      | Example                                                                                              |
+|-------------------------------|------------------------------------------------------------------------------------------------------|
+| `GCP_PROJECT_ID`              | `portfolio-notify-prod`                                                                              |
+| `GCP_REGION`                  | `us-central1`                                                                                        |
+| `ARTIFACT_REPO`               | `portfolio`                                                                                          |
+| `WIF_PROVIDER`                | `projects/702193211434/locations/global/workloadIdentityPools/github-pool/providers/github-provider` |
+| `DEPLOYER_SA_EMAIL`           | `ci-deployer@portfolio-notify-prod.iam.gserviceaccount.com`                                          |
+| `NOTIFY_RUNTIME_SA_EMAIL`     | `notification-runtime@portfolio-notify-prod.iam.gserviceaccount.com`                                 |
+| `PORTFOLIO_BASE_URL`          | `https://www.yuqi.site`                                                                              |
+| `ALLOWED_ORIGINS`             | `https://www.yuqi.site,http://localhost:3000`                                                        |
+| `SWAGGER_ALLOWED_EMAILS`      | `yuqi.guo17@gmail.com`                                                                               |
 
-### `PATCH /api/notifications/{id}/read`
-```json
-{ "subscriberId": "uuid", "subscriberToken": "raw-token" }
-```
-Marks a WEB recipient row `READ`. Only updates rows where `subscriber_id` matches and `channel = 'WEB'`.
+### Required Secret Manager entries
 
-### `GET /api/health/notification`
-Returns `200` with `{ status: "UP", details: { db, tables } }` when DB + required tables are present; `503` otherwise.
+`SPRING_DATASOURCE_URL`, `SPRING_DATASOURCE_USERNAME`, `SPRING_DATASOURCE_PASSWORD`,
+`KAFKA_BROKERS`, `KAFKA_USERNAME`, `KAFKA_PASSWORD`, `KAFKA_CA_CERT`,
+`MAIL_USERNAME`, `MAIL_PASSWORD`, `INTERNAL_API_TOKEN`, `TOKEN_PEPPER`,
+`SUPABASE_JWT_SECRET`, `GOOGLE_CLIENT_ID`.
 
 ---
 
-## Kafka
+## Security model
 
-### Consumer
-- Group: `portfolio-notification-consumer-group`
-- Topic: `portfolio.content-events`
-- Offset commit: manual; commits only after DB write succeeds (or after a DLQ publish for permanently invalid events).
-- DLQ topic: `portfolio.dlq` (raw payload + reason header).
+- **All write paths** require `X-Internal-Token` — generated with
+  `openssl rand -hex 32` and shared **only** with the Next.js portfolio
+  server-side proxy. Never expose to a browser.
+- **Unsubscribe tokens** are stored hashed (HMAC-SHA-256 with `TOKEN_PEPPER`).
+  The raw token only exists in the recipient's email.
+- **Swagger UI** is locked behind a Supabase JWT (or Google ID token,
+  optionally audience-checked against `GOOGLE_CLIENT_ID`). Access is
+  further restricted to `SWAGGER_ALLOWED_EMAILS`.
+- **Kafka** uses SASL_SSL + SCRAM-SHA-256. The PEM CA cert is the only
+  trust anchor; no system trust store fallback.
+- **No service account JSON keys** anywhere — CI uses Workload Identity
+  Federation, the runtime uses its attached service account.
 
-### Event contract (`portfolio.content-events`)
+---
 
-```json
-{
-  "eventId": "evt_01HXYZ",
-  "eventType": "ARTICLE_PUBLISHED",
-  "topic": "ARTICLE_UPDATES",
-  "sourceType": "BLOG",
-  "sourceId": "blog_123",
-  "title": "New article: Kafka Notification System",
-  "summary": "How I built a Kafka-powered notification system for my Portfolio.",
-  "url": "/blog-single/blog_123",
-  "createdAt": "2026-06-20T20:00:00Z",
-  "idempotencyKey": "ARTICLE_PUBLISHED:blog_123:v1",
-  "metadata": { "author": "Yuqi Guo", "site": "yuqi.site" }
-}
+## Operational runbook
+
+### Container starts but logs `UnknownHostException: db.<ref>.supabase.co`
+
+Supabase is IPv6-only on the free tier. Verify the Dockerfile carries
+`-Djava.net.preferIPv6Addresses=true` and that Cloud Run has IPv6 egress
+(`gcloud run services describe ... --format='value(spec.template.metadata.annotations)'`
+should NOT pin `run.googleapis.com/network-interfaces` to an IPv4-only VPC).
+
+### Container starts then fails with `org.apache.kafka.common.errors.TopicAuthorizationException` or `UnknownTopicOrPartitionException`
+
+We deliberately set `missing-topics-fatal: false` so the service stays up
+and serves REST traffic even when Kafka is mis-configured. Create the
+topic on Aiven (or wait for the producer to auto-create it), grant the
+consumer group `Read` on the topic and `Read`/`Describe` on the consumer
+group ACL, and consumption resumes without a restart.
+
+### `JsonDeserializer must be configured with property setters, or via configuration properties; not both`
+
+Same fix as the admin platform — do not mix `new JsonDeserializer<>(...)`
+constructor + `addTrustedPackages()` setters with `spring.json.*` keys.
+Pass deserializer **classes** only and let Spring Kafka build them from
+properties. See `KafkaConsumerConfig`.
+
+### Flyway "Migration checksum mismatch" / "description mismatch"
+
+Either run `mvn flyway:repair` against the target DB, or update
+`flyway_schema_history` manually:
+
+```sql
+UPDATE public.flyway_schema_history
+   SET checksum    = <new>,
+       description = '<exact description from V*__file.sql>',
+       script      = '<exact filename>'
+ WHERE version = '<n>';
 ```
 
-Allowed `eventType`: `ARTICLE_PUBLISHED`, `ARTICLE_UPDATED`, `FEATURE_RELEASED`, `JOB_POSITION_UPDATED`.
-Allowed `topic`: `ARTICLE_UPDATES`, `FEATURE_UPDATES`, `JOB_UPDATES`.
+Note: Spring Boot 3.3 with Flyway 10 supports `spring.flyway.baseline-on-migrate`
+and `spring.flyway.baseline-version`, but **not**
+`spring.flyway.repair-on-migration-checksum-mismatch`. Repair is a manual
+step.
 
-### Idempotency
-
-`content_event_audit.idempotency_key` is unique. Each fan-out row uses `idempotencyKey = "{notificationId}:{subscriberId}:{WEB|EMAIL}"` so retried deliveries never double-notify a subscriber.
-
-### Sending a test event
-
-Use the helper script ([`scripts/send-test-event.sh`](scripts/send-test-event.sh)) — it shells out to `kafkacat`/`kcat`:
+### Email is queued but never sent
 
 ```bash
-KAFKA_BROKERS=... KAFKA_USERNAME=... KAFKA_PASSWORD=... \
-  bash scripts/send-test-event.sh
+# 1. Confirm rows are landing in notification_recipients with state=READY
+psql "$SPRING_DATASOURCE_URL" -c \
+  "SELECT state, count(*) FROM notification_recipients GROUP BY 1;"
+
+# 2. Tail the scheduler
+gcloud logging tail \
+  'resource.type="cloud_run_revision"
+   AND resource.labels.service_name="portfolio-notification-service"
+   AND textPayload=~"EmailScheduler|smtp"' \
+  --project=portfolio-notify-prod
 ```
 
-Or insert a row directly into `content_event_audit` to simulate a processed event for local UI testing (see [`scripts/insert-fake-notification.sh`](scripts/insert-fake-notification.sh)).
+Common causes: Gmail revoked the app password, `MAIL_USERNAME` ≠ the From
+address Gmail expects, or the scheduler thread is paused because of an
+earlier exception in a batch (rows will sit at `state=FAILED` with
+`last_error` populated — reset to `READY` to re-attempt).
 
----
-
-## Cloud Run deployment
-
-### One-time GCP setup (run on your workstation)
+### Inspect the DLQ
 
 ```bash
-# 1. Variables
-export PROJECT_ID=your-gcp-project
-export REGION=us-central1
-export ARTIFACT_REPO=portfolio
-export GH_REPO=YuqiGuo105/portfolio-notification-service
-
-# 2. Enable APIs
-gcloud services enable \
-  run.googleapis.com \
-  artifactregistry.googleapis.com \
-  iamcredentials.googleapis.com \
-  secretmanager.googleapis.com \
-  --project=$PROJECT_ID
-
-# 3. Artifact Registry repo
-gcloud artifacts repositories create $ARTIFACT_REPO \
-  --repository-format=docker --location=$REGION --project=$PROJECT_ID
-
-# 4. Service accounts
-gcloud iam service-accounts create ci-deployer --project=$PROJECT_ID
-gcloud iam service-accounts create notification-runtime --project=$PROJECT_ID
-
-# 5. Grant deployer roles
-for role in roles/run.admin roles/artifactregistry.writer roles/iam.serviceAccountUser; do
-  gcloud projects add-iam-policy-binding $PROJECT_ID \
-    --member="serviceAccount:ci-deployer@$PROJECT_ID.iam.gserviceaccount.com" \
-    --role=$role
-done
-
-# 6. Runtime service account needs Secret Manager accessor
-gcloud projects add-iam-policy-binding $PROJECT_ID \
-  --member="serviceAccount:notification-runtime@$PROJECT_ID.iam.gserviceaccount.com" \
-  --role=roles/secretmanager.secretAccessor
-
-# 7. Workload Identity Federation for GitHub Actions
-gcloud iam workload-identity-pools create github \
-  --location=global --project=$PROJECT_ID
-gcloud iam workload-identity-pools providers create-oidc github-provider \
-  --location=global --workload-identity-pool=github \
-  --display-name="GitHub Actions" \
-  --attribute-mapping="google.subject=assertion.sub,attribute.repository=assertion.repository" \
-  --issuer-uri="https://token.actions.githubusercontent.com" \
-  --project=$PROJECT_ID
-
-# Bind the deployer SA so $GH_REPO can impersonate it
-PROJECT_NUMBER=$(gcloud projects describe $PROJECT_ID --format='value(projectNumber)')
-gcloud iam service-accounts add-iam-policy-binding \
-  ci-deployer@$PROJECT_ID.iam.gserviceaccount.com \
-  --role=roles/iam.workloadIdentityUser \
-  --member="principalSet://iam.googleapis.com/projects/$PROJECT_NUMBER/locations/global/workloadIdentityPools/github/attribute.repository/$GH_REPO" \
-  --project=$PROJECT_ID
-
-# 8. Create secrets (paste values when prompted)
-for s in SPRING_DATASOURCE_URL SPRING_DATASOURCE_USERNAME SPRING_DATASOURCE_PASSWORD \
-         KAFKA_BROKERS KAFKA_USERNAME KAFKA_PASSWORD \
-         SMTP_HOST SMTP_USER SMTP_PASSWORD TOKEN_PEPPER; do
-  gcloud secrets create "$s" --replication-policy=automatic --project=$PROJECT_ID || true
-  echo "Now run: echo -n 'value' | gcloud secrets versions add $s --data-file=-"
-done
+kafkacat -b $KAFKA_BROKERS -X security.protocol=SASL_SSL \
+  -X sasl.mechanisms=SCRAM-SHA-256 \
+  -X sasl.username=$KAFKA_USERNAME -X sasl.password=$KAFKA_PASSWORD \
+  -X ssl.ca.location=ca.pem \
+  -C -t portfolio.dlq -o beginning -e
 ```
 
-### GitHub repo settings → Variables (Actions)
+A poison-pill payload landing in `portfolio.dlq` always means a producer
+shape change. Fix the producer (admin-service) or evolve
+`ContentPublishedEvent` here with a backwards-compatible default.
 
-| Variable | Example |
-|---|---|
-| `GCP_PROJECT_ID` | `your-gcp-project` |
-| `GCP_REGION` | `us-central1` |
-| `ARTIFACT_REPO` | `portfolio` |
-| `WIF_PROVIDER` | `projects/123456789/locations/global/workloadIdentityPools/github/providers/github-provider` |
-| `DEPLOYER_SA_EMAIL` | `ci-deployer@your-gcp-project.iam.gserviceaccount.com` |
-| `RUNTIME_SA_EMAIL` | `notification-runtime@your-gcp-project.iam.gserviceaccount.com` |
-| `PORTFOLIO_BASE_URL` | `https://www.yuqi.site` |
-| `ALLOWED_ORIGINS` | `https://www.yuqi.site,http://localhost:3000` |
+### Rollback
 
-### Trigger deploy
-
-Push a tag:
 ```bash
-git tag v0.1.0
-git push origin v0.1.0
+gcloud run services update-traffic portfolio-notification-service \
+  --region=us-central1 \
+  --to-revisions=portfolio-notification-service-<NN>-<hash>=100
 ```
-…or run **Actions → Deploy to Cloud Run → Run workflow** manually.
-
-The job builds the JAR, pushes the Docker image to Artifact Registry, deploys to Cloud Run with the secrets attached, then `curl`s `/api/health/notification` as a smoke test.
 
 ---
 
-## Aiven Kafka quick setup (free tier)
+## Things this service intentionally does NOT do
 
-1. Create a free Kafka service in [Aiven Console](https://console.aiven.io/).
-2. Create topics `portfolio.content-events` (3 partitions, retention 7d) and `portfolio.dlq` (1 partition, retention 30d) under **Topics**.
-3. Under **Users**, create a SCRAM user; copy username + password.
-4. Add brokers + credentials to the GCP secrets above (`KAFKA_BROKERS`, `KAFKA_USERNAME`, `KAFKA_PASSWORD`).
-5. SSL is on by default; the service uses `SASL_SSL` with `SCRAM-SHA-256`.
+- ❌ Author content (that's `portfolio-admin-service`)
+- ❌ Render an admin UI
+- ❌ Send transactional email outside the publish/unsubscribe flows (no welcome drips, no marketing)
+- ❌ Allow browser-direct writes — every `/api/subscriptions/**` call must come through the Next.js server proxy
 
 ---
 
-## Security
+## Companion repos
 
-See [SECURITY.md](SECURITY.md). Highlights:
-
-- `SUPABASE_SERVICE_ROLE_KEY` is **never** used in this service. It only needs a normal Postgres connection.
-- Raw `subscriberToken` and `unsubscribeToken` are never stored; only SHA-256(pepper || token) is persisted.
-- Constant-time comparison on token verification.
-- The Next.js anon key is the only Supabase credential exposed to the browser; it is used solely to subscribe to Realtime INSERT pings on `notification_recipients`. Actual notification content always flows through verified API calls.
-
-**Action items for this repo (do these before going to prod):**
-
-1. **Rotate the secrets that were pasted into chat history** during planning:
-   - `SUPABASE_SERVICE_ROLE_KEY` (rotate in Supabase dashboard)
-   - `EMAIL_PASS` (revoke + regenerate the Gmail app password)
-   - `NEXT_PUBLIC_SUPABASE_ANON_KEY` (rotate if exposed beyond `.env.local`)
-2. Set `TOKEN_PEPPER` to a fresh 32-char random string. Rotating it invalidates all existing subscriber tokens (subscribers must re-subscribe). Roll forward with a one-time DB script if you need a graceful rotation.
-3. Verify `.env` is gitignored in **both** repos before committing.
+- [`portfolio-admin-service`](https://github.com/YuqiGuo105/portfolio-admin-service) — publisher of `content.notification.*.v1` events
+- [`Portfolio`](https://github.com/YuqiGuo105/Portfolio) — Next.js frontend + the server-side proxy that injects `X-Internal-Token`
 
 ---
 
@@ -288,30 +493,17 @@ See [SECURITY.md](SECURITY.md). Highlights:
 
 ```
 .
-├── .github/workflows/
-│   ├── ci.yml          # build, test, docker smoke
-│   └── deploy.yml      # build → push → Cloud Run
-├── .mvn/wrapper/       # Maven Wrapper (committed)
-├── mvnw, mvnw.cmd      # Maven Wrapper launchers
-├── Dockerfile          # Multi-stage Temurin 21 build
-├── pom.xml
-├── scripts/
-│   ├── send-test-event.sh
-│   └── insert-fake-notification.sh
 ├── src/main/java/site/yuqi/notifications/
-│   ├── NotificationApplication.java
-│   ├── config/         # CORS
-│   ├── controller/     # SubscriptionController, NotificationController, HealthController
-│   ├── domain/         # enums + records
-│   ├── dto/            # request/response DTOs
-│   ├── exception/      # 401/404/400 mappers
-│   ├── kafka/          # ContentEventConsumer, DlqProducer
-│   ├── repository/     # JdbcTemplate-based repos
-│   ├── scheduler/      # EmailDispatchScheduler
-│   └── service/        # TokenService, SubscriptionService, NotificationService,
-│                       # ContentEventProcessor, EmailDispatchService
+│   ├── NotificationsApplication.java
+│   ├── controller/      REST endpoints (Subscription, Notification, Health, ContentEvent)
+│   ├── service/         ContentEventProcessor, EmailScheduler, SubscriptionService
+│   ├── kafka/           ContentEventConsumer, DlqProducer, KafkaConsumerConfig
+│   ├── domain/          JPA entities for the 5 tables above
+│   ├── security/        InternalTokenFilter + SwaggerAuthFilter
+│   └── config/          Web/CORS/OpenAPI/SchedulingConfig
 ├── src/main/resources/
 │   ├── application.yml
-│   └── db/migration/V1__initial_schema.sql
-└── src/test/...        # 22 tests
+│   └── db/migration/    Flyway V*__*.sql
+├── Dockerfile
+└── .github/workflows/deploy.yml
 ```
