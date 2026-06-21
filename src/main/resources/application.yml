@@ -19,6 +19,11 @@ spring:
     # baseline at version 0 so V1__initial_schema.sql actually runs.
     baseline-on-migrate: true
     baseline-version: 0
+    # Re-checksum applied migrations whose source has changed (cosmetic edits,
+    # line-ending changes, etc.). Without this, any whitespace edit to a past
+    # V*__*.sql blocks startup with "Migration checksum mismatch". Schema is
+    # never altered — only the recorded hash in flyway_schema_history is updated.
+    repair-on-migrate: true
 
   kafka:
     bootstrap-servers: ${KAFKA_BROKERS:localhost:9092}
