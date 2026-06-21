@@ -142,7 +142,43 @@ X-Internal-Token: <INTERNAL_API_TOKEN>
 | POST   | `/api/content-events`                             | HTTP fallback that mimics a Kafka event (admin-only)           |
 | GET    | `/api/health/notification`                        | Composite health (DB + Kafka), no auth                         |
 | GET    | `/actuator/health`                                | Spring health, no auth                                         |
-| GET    | `/swagger-ui.html`                                | Gated by Supabase JWT (`Authorization: Bearer <token>`)        |
+| GET    | `/swagger-ui.html`                                | Gated by Supabase JWT (see ["Accessing Swagger UI"](#accessing-swagger-ui)) |
+
+---
+
+## Accessing Swagger UI
+
+Swagger UI is locked behind a Supabase JWT — there is no separate Swagger
+login form. The flow uses the same Supabase session that drives the Portfolio
+admin panel and Mr. Pot chat widget:
+
+1. Open <https://www.yuqi.site> and sign in using the embedded login dialog
+   (top-right user icon, or the Mr. Pot chat widget). Only emails in
+   `SWAGGER_ALLOWED_EMAILS` can pass step 3.
+2. Open browser DevTools → Console and grab the access token. On the live
+   site it is exposed under `window.supabase`:
+   ```js
+   (await window.supabase?.auth.getSession?.())?.data?.session?.access_token
+   ```
+   If `window.supabase` is not available, copy the token from the
+   `sb-<project-ref>-auth-token` cookie value (it is the `access_token`
+   field of the JSON payload).
+3. Open <https://portfolio-notification-service-y45c2mnbja-uc.a.run.app/swagger-ui.html>,
+   click **Authorize**, and paste `Bearer <token>`. Re-authorize when the
+   token expires (default ≈ 1 h).
+
+These Spring endpoints are the HTTP target layer for the Portfolio admin
+pages and the Mr. Pot chat widget MCP tools:
+
+| Spring endpoint                                  | Portfolio proxy                                  | Chat widget MCP tool      |
+|--------------------------------------------------|--------------------------------------------------|---------------------------|
+| `POST /api/subscriptions`                        | `POST /api/subscriptions`                        | `subscription.create`     |
+| `PATCH /api/subscriptions/preferences`           | `PATCH /api/subscriptions/preferences`           | `subscription.update`     |
+| `POST /api/subscriptions/unsubscribe`            | `POST /api/subscriptions/unsubscribe`            | `subscription.unsubscribe`|
+| `GET /api/notifications`                         | `GET /api/notifications`                         | `notification.list`       |
+| `PATCH /api/notifications/{id}/read`             | `PATCH /api/notifications/{id}/read`             | `notification.markRead`   |
+| `GET /api/health/notification`                   | `GET /api/health/notification`                   | `health.notification`     |
+| `POST /api/content-events`                       | `POST /api/admin/publish-event` (Supabase-gated) | `content.publish`         |
 
 ---
 

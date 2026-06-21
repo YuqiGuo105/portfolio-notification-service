@@ -105,9 +105,24 @@ springdoc:
     title: Portfolio Notification Service
     description: |
       Internal API for the Yuqi.site notification system.
-      **Access:** Swagger UI requires a valid Supabase session token.
-      Get it from the browser console: `(await supabase.auth.getSession()).data.session.access_token`
-      Then click **Authorize** and enter: `Bearer <token>`
+
+      **Access policy**
+      Swagger UI and `/v3/api-docs/**` are gated by a Supabase JWT (or Google
+      ID token) whose email must be in `SWAGGER_ALLOWED_EMAILS`. The write
+      endpoints (`/api/subscriptions/**`, `/api/notifications/**`,
+      `/api/content-events`) require the `X-Internal-Token` shared secret and
+      are only reachable via the Portfolio server-side proxy — never directly
+      from a browser.
+
+      **How to authorize Swagger UI**
+      1. Sign in at <https://www.yuqi.site> using the embedded Supabase login
+         dialog (top-right user icon, or the Mr. Pot chat widget).
+      2. Open browser DevTools → Console and run
+         `(await window.supabase?.auth.getSession?.())?.data?.session?.access_token`
+         (or, if Supabase is module-scoped, copy the token from the
+         `sb-<project>-auth-token` cookie).
+      3. Click **Authorize** above and paste `Bearer <token>`.
+      4. Allowed emails: `SWAGGER_ALLOWED_EMAILS` (see config).
     version: "0.1.0"
     contact:
       name: Yuqi Guo
