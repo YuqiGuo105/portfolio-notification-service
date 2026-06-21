@@ -21,6 +21,7 @@ import site.yuqi.notifications.dto.ContentEvent;
 import site.yuqi.notifications.dto.ContentEventRequest;
 import site.yuqi.notifications.service.ContentEventProcessor;
 import site.yuqi.notifications.service.ContentEventProcessor.Outcome;
+import site.yuqi.notifications.service.EmailDispatchService;
 
 import java.time.OffsetDateTime;
 import java.util.Map;
@@ -45,6 +46,7 @@ import java.util.UUID;
 public class ContentEventController {
 
     private final ContentEventProcessor processor;
+    private final EmailDispatchService emailDispatchService;
     private final ObjectMapper objectMapper;
 
     @PostMapping
@@ -153,6 +155,13 @@ public class ContentEventController {
 
         // Reuse exactly the same logic as the Kafka consumer (idempotency + fan-out)
         Outcome outcome = processor.process(rawJson, "http-trigger", null, idempotencyKey);
+
+        // When running on Cloud Run (scales to zero), background scheduler threads
+        // lose CPU after the HTTP request ends. Dispatch immediately while we still
+        // own the request CPU slice.
+        if (outcome == Outcome.DONE) {
+            emailDispatchService.dispatchOnce();
+        }
 
         return switch (outcome) {
             case DONE -> ResponseEntity.ok(Map.of(
