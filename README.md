@@ -50,10 +50,12 @@ flowchart TB
    `notification_recipients` rows in state `READY`; a scheduled worker
    claims a batch, sends via SMTP, and updates state. SMTP outages do not
    block Kafka consumption.
-4. **Shared-secret edge.** All `/api/subscriptions/**` and
-   `/api/notifications/**` calls require `X-Internal-Token`. Browsers
-   never see this header — the Next.js portfolio injects it server-side
-   in its API routes. Swagger UI is gated separately by a Supabase JWT.
+4. **Dual-channel edge.** All `/api/subscriptions/**` and
+   `/api/notifications/**` calls accept either `X-Internal-Token`
+   (server-to-server, used by the Next.js portfolio proxy and never seen
+   by browsers) or `Authorization: Bearer <token>` (Supabase access token
+   or Google ID token; email must be in `SWAGGER_ALLOWED_EMAILS`).
+   Swagger UI itself is public.
 
 ---
 
@@ -142,30 +144,35 @@ X-Internal-Token: <INTERNAL_API_TOKEN>
 | POST   | `/api/content-events`                             | HTTP fallback that mimics a Kafka event (admin-only)           |
 | GET    | `/api/health/notification`                        | Composite health (DB + Kafka), no auth                         |
 | GET    | `/actuator/health`                                | Spring health, no auth                                         |
-| GET    | `/swagger-ui.html`                                | Gated by Supabase JWT (see ["Accessing Swagger UI"](#accessing-swagger-ui)) |
+| GET    | `/swagger-ui.html`                                | Public (Swagger UI is unauthenticated, matching admin-service) |
 
 ---
 
 ## Accessing Swagger UI
 
-Swagger UI is locked behind a Supabase JWT — there is no separate Swagger
-login form. The flow uses the same Supabase session that drives the Portfolio
-admin panel and Mr. Pot chat widget:
+Swagger UI itself (`/swagger-ui/**`, `/v3/api-docs/**`) is **public** — you can
+browse the operation list without authenticating. To actually call any `/api/**`
+endpoint from the UI you still need credentials. The `InternalAuthFilter`
+accepts either of these:
 
-1. Open <https://www.yuqi.site> and sign in using the embedded login dialog
-   (top-right user icon, or the Mr. Pot chat widget). Only emails in
-   `SWAGGER_ALLOWED_EMAILS` can pass step 3.
-2. Open browser DevTools → Console and grab the access token. On the live
-   site it is exposed under `window.supabase`:
+- **`X-Internal-Token: <secret>`** — the Next.js Portfolio proxy uses this for
+  all server-to-server traffic; not useful for a human at Swagger UI.
+- **`Authorization: Bearer <token>`** — a Supabase access token or a Google ID
+  token. The email claim must be in `SWAGGER_ALLOWED_EMAILS`.
+
+The practical flow for an operator browsing Swagger UI:
+
+1. Sign in at <https://www.yuqi.site/admin/login> with your allow-listed
+   account (email/password or **Continue with Google**).
+2. Open DevTools → Application → Local Storage and copy the `access_token`
+   field from the `sb-iyvhmpdfrnznxgyvvkvx-auth-token` entry. Alternatively
+   in the Console:
    ```js
    (await window.supabase?.auth.getSession?.())?.data?.session?.access_token
    ```
-   If `window.supabase` is not available, copy the token from the
-   `sb-<project-ref>-auth-token` cookie value (it is the `access_token`
-   field of the JSON payload).
 3. Open <https://portfolio-notification-service-y45c2mnbja-uc.a.run.app/swagger-ui.html>,
-   click **Authorize**, and paste `Bearer <token>`. Re-authorize when the
-   token expires (default ≈ 1 h).
+   click **Authorize**, and paste `Bearer <token>` into the `bearerAuth` field.
+   Re-authorize when the token expires (default ≈ 1 h).
 
 These Spring endpoints are the HTTP target layer for the Portfolio admin
 pages and the Mr. Pot chat widget MCP tools:
@@ -226,8 +233,8 @@ ENV JAVA_OPTS="-XX:+UseG1GC -XX:MaxRAMPercentage=75 -Djava.net.preferIPv6Address
 | `MAIL_USERNAME` / `MAIL_PASSWORD` | secret     | App password                                                          |
 | `INTERNAL_API_TOKEN`           | secret        | Shared with Next.js portfolio proxy                                   |
 | `TOKEN_PEPPER`                 | secret        | Used to derive `unsubscribe_token_hash`                               |
-| `SUPABASE_JWT_SECRET`          | secret        | Gates Swagger UI                                                      |
-| `SWAGGER_ALLOWED_EMAILS`       | env           | Comma-separated email allow-list for Swagger                          |
+| `SUPABASE_JWT_SECRET`          | secret        | Gates Bearer JWT calls on `/api/**` (also any Swagger "Try it out")    |
+| `SWAGGER_ALLOWED_EMAILS`       | env           | Comma-separated email allow-list for Bearer JWT callers               |
 | `GOOGLE_CLIENT_ID`             | env           | Optional `aud` check on Google ID tokens                              |
 | `PORTFOLIO_BASE_URL`           | env           | `https://www.yuqi.site` — used in email links                         |
 | `ALLOWED_ORIGINS`              | env           | CORS allow-list                                                       |
@@ -314,14 +321,18 @@ via `workflow_dispatch`. Steps mirror the admin platform pipeline:
 
 ## Security model
 
-- **All write paths** require `X-Internal-Token` — generated with
-  `openssl rand -hex 32` and shared **only** with the Next.js portfolio
-  server-side proxy. Never expose to a browser.
+- **All `/api/**` paths** require one of two channels (either is sufficient):
+  - `X-Internal-Token` — generated with `openssl rand -hex 32` and shared
+    **only** with the Next.js portfolio server-side proxy. Never expose to a
+    browser.
+  - `Authorization: Bearer <token>` — Supabase access token or Google ID
+    token. The email claim must be in `SWAGGER_ALLOWED_EMAILS`. Google tokens
+    are optionally audience-checked against `GOOGLE_CLIENT_ID`.
 - **Unsubscribe tokens** are stored hashed (HMAC-SHA-256 with `TOKEN_PEPPER`).
   The raw token only exists in the recipient's email.
-- **Swagger UI** is locked behind a Supabase JWT (or Google ID token,
-  optionally audience-checked against `GOOGLE_CLIENT_ID`). Access is
-  further restricted to `SWAGGER_ALLOWED_EMAILS`.
+- **Swagger UI** is public (consistent with admin-service). API calls made
+  from "Try it out" still flow through `InternalAuthFilter` and need a valid
+  credential per the rule above.
 - **Kafka** uses SASL_SSL + SCRAM-SHA-256. The PEM CA cert is the only
   trust anchor; no system trust store fallback.
 - **No service account JSON keys** anywhere — CI uses Workload Identity
@@ -441,7 +452,7 @@ gcloud run services update-traffic portfolio-notification-service \
 │   ├── service/         ContentEventProcessor, EmailScheduler, SubscriptionService
 │   ├── kafka/           ContentEventConsumer, DlqProducer, KafkaConsumerConfig
 │   ├── domain/          JPA entities for the 5 tables above
-│   ├── security/        InternalTokenFilter + SwaggerAuthFilter
+│   ├── security/        InternalAuthFilter + BearerTokenValidator
 │   └── config/          Web/CORS/OpenAPI/SchedulingConfig
 ├── src/main/resources/
 │   ├── application.yml

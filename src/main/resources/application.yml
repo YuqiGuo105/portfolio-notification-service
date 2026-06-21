@@ -81,14 +81,18 @@ portfolio:
   internal-token: ${INTERNAL_API_TOKEN:}
   swagger:
     # Supabase JWT secret (from Supabase Dashboard → Project Settings → API → JWT Secret).
-    # The SwaggerAuthFilter validates Bearer tokens on /swagger-ui/** and /v3/api-docs/**.
+    # BearerTokenValidator uses this to verify Supabase access tokens. Property name
+    # kept on the `portfolio.swagger.*` namespace for back-compat with existing
+    # Cloud Run / secret bindings; both Swagger UI authorization and protected /api/**
+    # requests share the same validator.
     jwt-secret: ${SUPABASE_JWT_SECRET:}
-    # Comma-separated list of Supabase account emails allowed to access Swagger UI.
-    # Leave empty to allow any authenticated Supabase user.
+    # Comma-separated list of emails allowed to authenticate via Bearer token
+    # (Supabase JWT or Google ID token). Leave empty to allow any verified email.
     allowed-emails: ${SWAGGER_ALLOWED_EMAILS:yuqi.guo17@gmail.com}
     # Google OAuth2 Client ID — used to verify the 'aud' claim in Google ID tokens.
     # Get from GCP Console → APIs & Services → Credentials → OAuth 2.0 Client ID.
-    # Leave empty to skip audience verification (less strict but still validates signature + email).
+    # Leave empty to skip audience verification (less strict but still validates
+    # signature + email).
     google-client-id: ${GOOGLE_CLIENT_ID:}
 
 springdoc:
@@ -107,22 +111,22 @@ springdoc:
       Internal API for the Yuqi.site notification system.
 
       **Access policy**
-      Swagger UI and `/v3/api-docs/**` are gated by a Supabase JWT (or Google
-      ID token) whose email must be in `SWAGGER_ALLOWED_EMAILS`. The write
-      endpoints (`/api/subscriptions/**`, `/api/notifications/**`,
-      `/api/content-events`) require the `X-Internal-Token` shared secret and
-      are only reachable via the Portfolio server-side proxy — never directly
-      from a browser.
+      Swagger UI (`/swagger-ui/**`) and the OpenAPI spec (`/v3/api-docs/**`) are
+      public so operators can browse the API without authenticating. Every call
+      to `/api/**` (except `/api/health`) still requires one of:
 
-      **How to authorize Swagger UI**
-      1. Sign in at <https://www.yuqi.site> using the embedded Supabase login
-         dialog (top-right user icon, or the Mr. Pot chat widget).
-      2. Open browser DevTools → Console and run
-         `(await window.supabase?.auth.getSession?.())?.data?.session?.access_token`
-         (or, if Supabase is module-scoped, copy the token from the
-         `sb-<project>-auth-token` cookie).
-      3. Click **Authorize** above and paste `Bearer <token>`.
-      4. Allowed emails: `SWAGGER_ALLOWED_EMAILS` (see config).
+      - `X-Internal-Token: <secret>` — the Portfolio Next.js proxy uses this for
+        all server-to-server traffic.
+      - `Authorization: Bearer <token>` — a Supabase access token or Google ID
+        token. The email claim must be in `SWAGGER_ALLOWED_EMAILS`.
+
+      **How to call protected endpoints from Swagger UI**
+      1. Sign in at <https://www.yuqi.site/admin/login> with your allow-listed
+         account (email/password or Continue with Google).
+      2. Open DevTools → Application → Local Storage and copy the
+         `access_token` from the `sb-iyvhmpdfrnznxgyvvkvx-auth-token` entry.
+      3. Click **Authorize** above and paste `Bearer <access_token>`.
+      4. Allowed emails: `SWAGGER_ALLOWED_EMAILS`.
     version: "0.1.0"
     contact:
       name: Yuqi Guo
