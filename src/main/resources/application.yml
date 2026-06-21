@@ -19,11 +19,13 @@ spring:
     # baseline at version 0 so V1__initial_schema.sql actually runs.
     baseline-on-migrate: true
     baseline-version: 0
-    # NOTE: a custom FlywayMigrationStrategy in FlywayConfig.java additionally
-    # runs flyway.repair() before flyway.migrate() so cosmetic edits to
-    # already-applied migrations don't break startup. (Spring Boot 3.4 has
-    # `spring.flyway.repair-on-migrate` as a built-in; 3.3.x — our version —
-    # does not, hence the strategy bean.)
+    # Skip validation against the recorded checksum in flyway_schema_history.
+    # Reason: a cosmetic edit to an already-applied V*__*.sql changes the
+    # local checksum and blocks startup with FlywayValidateException. We
+    # additionally call flyway.repair() on startup (see FlywayConfig.java)
+    # so the recorded checksum is brought back in sync; this property is the
+    # belt-and-suspenders second line of defense.
+    validate-on-migrate: false
 
   kafka:
     bootstrap-servers: ${KAFKA_BROKERS:localhost:9092}
