@@ -38,10 +38,16 @@ import java.util.Set;
 @Slf4j
 public class InternalAuthFilter extends OncePerRequestFilter {
 
-    /** Paths that bypass the filter entirely. */
+    /**
+     * Paths that bypass the InternalAuthFilter entirely.
+     * - /api/health and /actuator are public health checks.
+     * - /swagger-ui and /v3/api-docs are handled by SwaggerAuthFilter (Supabase JWT).
+     */
     private static final Set<String> PUBLIC_PREFIXES = Set.of(
             "/api/health",
-            "/actuator"
+            "/actuator",
+            "/swagger-ui",
+            "/v3/api-docs"
     );
 
     public static final String HEADER = "X-Internal-Token";

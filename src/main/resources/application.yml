@@ -78,6 +78,40 @@ management:
 
 portfolio:
   base-url: ${PORTFOLIO_BASE_URL:https://www.yuqi.site}
+  internal-token: ${INTERNAL_API_TOKEN:}
+  swagger:
+    # Supabase JWT secret (from Supabase Dashboard → Project Settings → API → JWT Secret).
+    # The SwaggerAuthFilter validates Bearer tokens on /swagger-ui/** and /v3/api-docs/**.
+    jwt-secret: ${SUPABASE_JWT_SECRET:}
+    # Comma-separated list of Supabase account emails allowed to access Swagger UI.
+    # Leave empty to allow any authenticated Supabase user.
+    allowed-emails: ${SWAGGER_ALLOWED_EMAILS:yuqi.guo17@gmail.com}
+    # Google OAuth2 Client ID — used to verify the 'aud' claim in Google ID tokens.
+    # Get from GCP Console → APIs & Services → Credentials → OAuth 2.0 Client ID.
+    # Leave empty to skip audience verification (less strict but still validates signature + email).
+    google-client-id: ${GOOGLE_CLIENT_ID:}
+
+springdoc:
+  api-docs:
+    path: /v3/api-docs
+  swagger-ui:
+    path: /swagger-ui.html
+    # Show the Authorize button so users can paste their Supabase Bearer token
+    persist-authorization: true
+    display-request-duration: true
+    tags-sorter: alpha
+    operations-sorter: alpha
+  info:
+    title: Portfolio Notification Service
+    description: |
+      Internal API for the Yuqi.site notification system.
+      **Access:** Swagger UI requires a valid Supabase session token.
+      Get it from the browser console: `(await supabase.auth.getSession()).data.session.access_token`
+      Then click **Authorize** and enter: `Bearer <token>`
+    version: "0.1.0"
+    contact:
+      name: Yuqi Guo
+      url: https://www.yuqi.site
   allowed-origins: ${ALLOWED_ORIGINS:https://www.yuqi.site,http://localhost:3000}
   # Shared-secret header (X-Internal-Token) required on all /api/subscriptions/* and
   # /api/notifications/* requests. The Next.js Portfolio proxy injects this header
