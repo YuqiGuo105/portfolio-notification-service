@@ -41,7 +41,11 @@ spring:
       ssl.truststore.certificates: ${KAFKA_CA_CERT:}
     consumer:
       group-id: ${KAFKA_CONSUMER_GROUP:portfolio-notification-consumer-group}
-      auto-offset-reset: earliest
+      # For the migration to the new content.notification.*.v1 topics we start at
+      # the tip so historical events published before this consumer subscribed
+      # are not replayed. Idempotency is enforced on top of this by
+      # content_event_audit.idempotency_key.
+      auto-offset-reset: latest
       enable-auto-commit: false
       key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
       value-deserializer: org.apache.kafka.common.serialization.StringDeserializer
@@ -147,6 +151,13 @@ springdoc:
   kafka:
     content-events-topic: ${KAFKA_TOPIC_CONTENT_EVENTS:portfolio.content-events}
     dlq-topic: ${KAFKA_TOPIC_DLQ:portfolio.dlq}
+    # Notification-domain topics published by portfolio-admin-service.
+    # The Kafka listener subscribes to all three so email/web notifications
+    # fire for BLOG / LIFE_BLOG / PROJECT / EXPERIENCE publishes.
+    notification:
+      article-updates-topic: ${KAFKA_TOPIC_NOTIFICATION_ARTICLE:content.notification.article-updates.v1}
+      feature-updates-topic: ${KAFKA_TOPIC_NOTIFICATION_FEATURE:content.notification.feature-updates.v1}
+      job-updates-topic:     ${KAFKA_TOPIC_NOTIFICATION_JOBS:content.notification.job-updates.v1}
   token:
     pepper: ${TOKEN_PEPPER:dev-only-pepper-change-me}
   email:

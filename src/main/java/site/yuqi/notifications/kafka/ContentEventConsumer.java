@@ -18,7 +18,11 @@ public class ContentEventConsumer {
     private final DlqProducer dlq;
 
     @KafkaListener(
-            topics = "${portfolio.kafka.content-events-topic:portfolio.content-events}",
+            topics = {
+                    "${portfolio.kafka.notification.article-updates-topic:content.notification.article-updates.v1}",
+                    "${portfolio.kafka.notification.feature-updates-topic:content.notification.feature-updates.v1}",
+                    "${portfolio.kafka.notification.job-updates-topic:content.notification.job-updates.v1}"
+            },
             groupId = "${spring.kafka.consumer.group-id:portfolio-notification-consumer-group}",
             autoStartup = "${portfolio.kafka.consumer-enabled:true}"
     )

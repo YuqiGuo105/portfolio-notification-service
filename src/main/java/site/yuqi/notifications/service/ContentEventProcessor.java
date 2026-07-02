@@ -90,7 +90,7 @@ public class ContentEventProcessor {
                     ? existing.id()
                     : auditRepo.insertProcessing(
                             kafkaTopic, partition, offset,
-                            event.eventId(), event.eventType(), event.topic(),
+                            event.eventId(), event.effectiveEventType(), event.topic(),
                             event.sourceType(), event.sourceId(),
                             event.title(), event.summary(), event.url(),
                             rawJson, event.idempotencyKey());
