@@ -14,26 +14,87 @@ worker reading from `notification_recipients`.
 
 ```mermaid
 flowchart TB
-    Admin["portfolio-admin-service<br/>(publisher)"]
-    K[["Kafka<br/>content events"]]
-    Consumer["Notification Consumer"]
-    PG[("Supabase Postgres<br/><br/>subscribers<br/>subscription_preferences<br/>notifications<br/>notification_recipients<br/>content_event_audit")]
-    Scheduler["Email Scheduler"]
-    SMTP(("SMTP / Gmail"))
-    User(("Subscriber"))
+    %% ================= External =================
+    AdminPub(["☕ portfolio-admin-service"])
+    Portal(["▲ Portfolio Frontend · Vercel"])
+    Subscriber(("👤 Subscriber"))
 
-    Portal["Next.js Portfolio<br/>(server-side proxy)"]
-    REST["Subscription & Notification API"]
+    %% ================= Kafka =================
+    K_EVENTS@{ shape: das, label: "🟣 Kafka\ncontent.notification.*.v1\nportfolio.content-events" }
+    DLQ@{ shape: das, label: "🟣 Kafka\nportfolio.dlq\npoison-pill isolation" }
 
-    Admin --> K
-    K --> Consumer
-    Consumer --> PG
-    PG --> Scheduler
-    Scheduler --> SMTP
-    SMTP --> User
+    %% ================= Notification Service =================
+    subgraph NOTIF_SVC["🔔 NOTIFICATION SERVICE · Cloud Run"]
+        direction TB
 
-    Portal --> REST
-    REST --> PG
+        subgraph INGEST["📥 Event Ingestion"]
+            CONSUMER["🎧 ContentEventConsumer\nmanual ack · DLQ on parse fail"]
+            HTTP_FALLBACK["🌐 ContentEventController\nPOST /api/content-events\nHTTP fallback when Kafka down"]
+            PROCESSOR["⚙️ ContentEventProcessor\nidempotencyKey dedup\nfan-out to recipients"]
+        end
+
+        subgraph REST["🌐 REST API"]
+            SUB_CTRL["📬 SubscriptionController\nsubscribe · preferences · unsubscribe"]
+            NOTIF_CTRL["🔔 NotificationController\nfeed · mark-read"]
+            HEALTH["💚 HealthController\nDB + Kafka composite"]
+        end
+
+        subgraph AUTH["🔐 Auth"]
+            FILTER["InternalAuthFilter\nX-Internal-Token · Bearer JWT\nSWAGGER_ALLOWED_EMAILS"]
+        end
+
+        subgraph DELIVERY["✉️ Email Delivery"]
+            SCHEDULER["⏱️ EmailScheduler\n@Scheduled poll 15s\nclaim batch of READY"]
+            SENDER["📨 JavaMailSender\nHTML + text render\nmax 5 retries · 60→960s backoff"]
+            TRACKER["📈 Delivery Tracker\nREADY → SENT / FAILED / SKIPPED"]
+        end
+    end
+
+    %% ================= Persistence =================
+    PG@{ shape: cyl, label: "🐘 Supabase Postgres\n\nsubscribers · subscription_preferences\nnotifications · notification_recipients\ncontent_event_audit" }
+
+    %% ================= SMTP =================
+    SMTP(("📨 Gmail SMTP Relay"))
+
+    %% ================= Connections: Ingest path =================
+    AdminPub -->|publish content event| K_EVENTS
+    K_EVENTS --> CONSUMER
+    CONSUMER --> PROCESSOR
+    CONSUMER -.->|parse failure| DLQ
+    HTTP_FALLBACK --> PROCESSOR
+    PROCESSOR -->|INSERT notifications + recipients| PG
+
+    %% ================= Connections: REST =================
+    Portal -->|X-Internal-Token| FILTER
+    FILTER --> SUB_CTRL
+    FILTER --> NOTIF_CTRL
+    SUB_CTRL --> PG
+    NOTIF_CTRL --> PG
+
+    %% ================= Connections: Delivery =================
+    PG -->|poll READY recipients| SCHEDULER
+    SCHEDULER --> SENDER
+    SENDER --> SMTP
+    SMTP --> Subscriber
+    SENDER --> TRACKER
+    TRACKER -->|update state| PG
+
+    %% ================= Styles =================
+    classDef service fill:#ffffff,stroke:#334155,stroke-width:1.2px,color:#0f172a
+    classDef database fill:#eff6ff,stroke:#2563eb,stroke-width:1.4px,color:#1e3a8a
+    classDef kafka fill:#faf5ff,stroke:#7c3aed,stroke-width:1.5px,color:#4c1d95
+    classDef external fill:#f9fafb,stroke:#6b7280,stroke-width:1.1px,color:#111827
+
+    class CONSUMER,HTTP_FALLBACK,PROCESSOR,SUB_CTRL,NOTIF_CTRL,HEALTH,FILTER,SCHEDULER,SENDER,TRACKER service
+    class PG database
+    class K_EVENTS,DLQ kafka
+    class AdminPub,Portal,SMTP,Subscriber external
+
+    style NOTIF_SVC fill:#fef2f2,stroke:#ef4444,stroke-width:2px,color:#7f1d1d
+    style INGEST fill:#fefce8,stroke:#ca8a04,stroke-width:1.5px,color:#713f12
+    style REST fill:#ecfdf5,stroke:#059669,stroke-width:1.5px,color:#064e3b
+    style AUTH fill:#fff7ed,stroke:#f97316,stroke-width:1.5px,color:#7c2d12
+    style DELIVERY fill:#eff6ff,stroke:#2563eb,stroke-width:1.5px,color:#1e3a8a
 ```
 
 **Design properties:**
