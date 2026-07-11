@@ -196,10 +196,11 @@ X-Internal-Token: <INTERNAL_API_TOKEN>
 
 | Method | Path                                              | Notes                                                          |
 |--------|---------------------------------------------------|----------------------------------------------------------------|
-| POST   | `/api/subscriptions`                              | `{email, channels?: [...]}` — upsert + welcome email           |
-| GET    | `/api/subscriptions/preferences?email=`           | Returns current channel toggles                                |
-| PUT    | `/api/subscriptions/preferences`                  | `{email, channels: {ARTICLE_UPDATES:true, ...}}`               |
-| POST   | `/api/subscriptions/unsubscribe`                  | `{token}` — one-click unsubscribe (token from the email)       |
+| POST   | `/api/subscriptions`                              | `{email, topics, channels}` — create or update subscription    |
+| PATCH  | `/api/subscriptions/preferences`                  | Token-authenticated topic/channel preference update            |
+| POST   | `/api/subscriptions/unsubscribe`                  | `{token}` — legacy token-based unsubscribe                     |
+| POST   | `/api/subscriptions/unsubscribe-verification`     | `{email}` — send a short-lived unsubscribe code                |
+| POST   | `/api/subscriptions/unsubscribe/confirm`          | `{verificationId, verificationCode}` — set `UNSUBSCRIBED`      |
 | GET    | `/api/notifications?email=&unreadOnly=&limit=`    | Subscriber notification feed                                   |
 | POST   | `/api/notifications/{id}/read`                    | Mark single notification read                                  |
 | POST   | `/api/content-events`                             | HTTP fallback that mimics a Kafka event (admin-only)           |
@@ -294,6 +295,10 @@ ENV JAVA_OPTS="-XX:+UseG1GC -XX:MaxRAMPercentage=75 -Djava.net.preferIPv6Address
 | `MAIL_USERNAME` / `MAIL_PASSWORD` | secret     | App password                                                          |
 | `INTERNAL_API_TOKEN`           | secret        | Shared with Next.js portfolio proxy                                   |
 | `TOKEN_PEPPER`                 | secret        | Used to derive `unsubscribe_token_hash`                               |
+| `REDIS_URL`                    | secret        | Redis connection for short-lived unsubscribe OTP challenges           |
+| `EMAIL_PREVIEW_MAX_CHARACTERS` | env           | Maximum article preview length in email; default `320`                  |
+| `UNSUBSCRIBE_CODE_TTL_SECONDS` | env           | Email verification-code lifetime; default `600`                        |
+| `UNSUBSCRIBE_CODE_MAX_ATTEMPTS`| env           | Maximum incorrect code attempts; default `5`                           |
 | `SUPABASE_JWT_SECRET`          | secret        | Gates Bearer JWT calls on `/api/**` (also any Swagger "Try it out")    |
 | `SWAGGER_ALLOWED_EMAILS`       | env           | Comma-separated email allow-list for Bearer JWT callers               |
 | `GOOGLE_CLIENT_ID`             | env           | Optional `aud` check on Google ID tokens                              |
@@ -389,8 +394,10 @@ via `workflow_dispatch`. Steps mirror the admin platform pipeline:
   - `Authorization: Bearer <token>` — Supabase access token or Google ID
     token. The email claim must be in `SWAGGER_ALLOWED_EMAILS`. Google tokens
     are optionally audience-checked against `GOOGLE_CLIENT_ID`.
-- **Unsubscribe tokens** are stored hashed (HMAC-SHA-256 with `TOKEN_PEPPER`).
-  The raw token only exists in the recipient's email.
+- **Unsubscribe tokens and verification codes** are stored only as
+  HMAC-SHA-256 hashes. OTP challenges live in Redis with a short TTL, bounded
+  attempts, one-time consumption, and generic responses that prevent email
+  enumeration.
 - **Swagger UI** is public (consistent with admin-service). API calls made
   from "Try it out" still flow through `InternalAuthFilter` and need a valid
   credential per the rule above.

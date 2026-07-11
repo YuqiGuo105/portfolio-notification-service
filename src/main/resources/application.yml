@@ -73,6 +73,17 @@ spring:
           starttls:
             enable: true
 
+  data:
+    redis:
+      url: ${REDIS_URL:redis://localhost:6379}
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      username: ${REDIS_USERNAME:}
+      password: ${REDIS_PASSWORD:}
+      ssl:
+        enabled: ${REDIS_SSL:false}
+      timeout: ${REDIS_TIMEOUT:2s}
+
 server:
   port: ${SERVER_PORT:8080}
 
@@ -165,10 +176,18 @@ springdoc:
     pepper: ${TOKEN_PEPPER:dev-only-pepper-change-me}
   email:
     from: ${SMTP_FROM:noreply@yuqi.site}
+    preview:
+      max-characters: ${EMAIL_PREVIEW_MAX_CHARACTERS:320}
     dispatch:
       interval-ms: ${EMAIL_DISPATCH_INTERVAL_MS:15000}
       batch-size: ${EMAIL_DISPATCH_BATCH_SIZE:20}
       max-retry: ${EMAIL_DISPATCH_MAX_RETRY:5}
+  unsubscribe:
+    verification:
+      ttl-seconds: ${UNSUBSCRIBE_CODE_TTL_SECONDS:600}
+      max-attempts: ${UNSUBSCRIBE_CODE_MAX_ATTEMPTS:5}
+      max-requests-per-window: ${UNSUBSCRIBE_CODE_MAX_REQUESTS:3}
+      rate-window-seconds: ${UNSUBSCRIBE_CODE_RATE_WINDOW_SECONDS:3600}
 
 logging:
   level:
@@ -206,6 +225,10 @@ spring:
     port: 25
     username: test
     password: test
+  data:
+    redis:
+      repositories:
+        enabled: false
 
 portfolio:
   kafka:
@@ -220,4 +243,3 @@ portfolio:
       initial-delay-ms: 600000
       max-retry: 5
       batch-size: 20
-

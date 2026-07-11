@@ -26,6 +26,7 @@ public class ContentEventProcessor {
     private final NotificationRepository notificationRepo;
     private final NotificationRecipientRepository recipientRepo;
     private final ObjectMapper objectMapper;
+    private final EmailPreviewService previewService;
     private final String baseUrl;
 
     public ContentEventProcessor(ContentEventAuditRepository auditRepo,
@@ -33,12 +34,14 @@ public class ContentEventProcessor {
                                  NotificationRepository notificationRepo,
                                  NotificationRecipientRepository recipientRepo,
                                  ObjectMapper objectMapper,
+                                 EmailPreviewService previewService,
                                  @Value("${portfolio.base-url:https://www.yuqi.site}") String baseUrl) {
         this.auditRepo = auditRepo;
         this.prefRepo = prefRepo;
         this.notificationRepo = notificationRepo;
         this.recipientRepo = recipientRepo;
         this.objectMapper = objectMapper;
+        this.previewService = previewService;
         this.baseUrl = baseUrl;
     }
 
@@ -123,7 +126,7 @@ public class ContentEventProcessor {
 
         String absoluteUrl = toAbsoluteUrl(event.url());
         UUID notificationId = notificationRepo.insert(
-                auditId, event.topic(), event.title(), event.summary(), absoluteUrl);
+                auditId, event.topic(), event.title(), previewService.preview(event.summary()), absoluteUrl);
 
         int web = 0, em = 0, dupes = 0;
         for (SubscriptionPreference p : prefs) {

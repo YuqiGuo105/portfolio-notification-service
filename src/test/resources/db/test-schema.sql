@@ -17,6 +17,8 @@ create table public.subscribers (
     status                   varchar(32) not null default 'ACTIVE',
     subscriber_token_hash    varchar(128) not null,
     unsubscribe_token_hash   varchar(128),
+    unsubscribed_at          timestamp with time zone,
+    unsubscribe_source      varchar(64),
     created_at               timestamp with time zone not null default current_timestamp,
     updated_at               timestamp with time zone not null default current_timestamp
 );

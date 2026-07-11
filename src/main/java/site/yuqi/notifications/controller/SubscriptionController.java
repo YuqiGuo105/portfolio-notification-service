@@ -11,8 +11,13 @@ import org.springframework.web.bind.annotation.RestController;
 import site.yuqi.notifications.dto.SubscribeRequest;
 import site.yuqi.notifications.dto.SubscribeResponse;
 import site.yuqi.notifications.dto.UnsubscribeRequest;
+import site.yuqi.notifications.dto.UnsubscribeVerificationRequest;
+import site.yuqi.notifications.dto.UnsubscribeVerificationResponse;
+import site.yuqi.notifications.dto.ConfirmUnsubscribeRequest;
+import site.yuqi.notifications.dto.ConfirmUnsubscribeResponse;
 import site.yuqi.notifications.dto.UpdatePreferencesRequest;
 import site.yuqi.notifications.service.SubscriptionService;
+import site.yuqi.notifications.service.UnsubscribeVerificationService;
 
 import java.util.Map;
 
@@ -22,6 +27,7 @@ import java.util.Map;
 public class SubscriptionController {
 
     private final SubscriptionService service;
+    private final UnsubscribeVerificationService unsubscribeVerificationService;
 
     @PostMapping
     public ResponseEntity<SubscribeResponse> subscribe(@Valid @RequestBody SubscribeRequest req) {
@@ -42,5 +48,18 @@ public class SubscriptionController {
                 "status", "ok",
                 "unsubscribed", ok
         ));
+    }
+
+    @PostMapping("/unsubscribe-verification")
+    public ResponseEntity<UnsubscribeVerificationResponse> requestUnsubscribeVerification(
+            @Valid @RequestBody UnsubscribeVerificationRequest req) {
+        return ResponseEntity.accepted().body(unsubscribeVerificationService.requestCode(req.email()));
+    }
+
+    @PostMapping("/unsubscribe/confirm")
+    public ResponseEntity<ConfirmUnsubscribeResponse> confirmUnsubscribe(
+            @Valid @RequestBody ConfirmUnsubscribeRequest req) {
+        return ResponseEntity.ok(unsubscribeVerificationService.confirm(
+                req.verificationId(), req.verificationCode()));
     }
 }

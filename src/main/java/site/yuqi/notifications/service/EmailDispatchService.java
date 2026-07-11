@@ -23,6 +23,7 @@ public class EmailDispatchService {
     private final NotificationRecipientRepository recipientRepo;
     private final JdbcTemplate jdbc;
     private final JavaMailSender mailSender;
+    private final EmailPreviewService previewService;
     private final String fromAddress;
     private final int batchSize;
     private final int maxRetry;
@@ -30,12 +31,14 @@ public class EmailDispatchService {
     public EmailDispatchService(NotificationRecipientRepository recipientRepo,
                                 JdbcTemplate jdbc,
                                 JavaMailSender mailSender,
+                                EmailPreviewService previewService,
                                 @Value("${portfolio.email.from:noreply@yuqi.site}") String fromAddress,
                                 @Value("${portfolio.email.dispatch.batch-size:20}") int batchSize,
                                 @Value("${portfolio.email.dispatch.max-retry:5}") int maxRetry) {
         this.recipientRepo = recipientRepo;
         this.jdbc = jdbc;
         this.mailSender = mailSender;
+        this.previewService = previewService;
         this.fromAddress = fromAddress;
         this.batchSize = batchSize;
         this.maxRetry = maxRetry;
@@ -104,7 +107,8 @@ public class EmailDispatchService {
             mailSender.send(mime);
 
             recipientRepo.markSent(row.id());
-            log.info("{\"event\":\"email_sent\",\"recipientId\":\"{}\",\"to\":\"{}\"}", row.id(), email);
+            log.info("{\"event\":\"email_sent\",\"recipientId\":\"{}\",\"subscriberId\":\"{}\"}",
+                    row.id(), row.subscriberId());
         } catch (MailException | jakarta.mail.MessagingException e) {
             int backoff = nextBackoff(row.retryCount());
             recipientRepo.markFailed(row.id(), e.getMessage(), backoff);
@@ -136,8 +140,9 @@ public class EmailDispatchService {
     private String buildPlainBody(NotificationRecipientRow row) {
         StringBuilder sb = new StringBuilder();
         sb.append(safe(row.notificationTitle())).append("\n\n");
-        if (notBlank(row.notificationBody())) {
-            sb.append(row.notificationBody()).append("\n\n");
+        String preview = previewService.preview(row.notificationBody());
+        if (notBlank(preview)) {
+            sb.append(preview).append("\n\n");
         }
         if (notBlank(row.notificationUrl())) {
             sb.append("Read more: ").append(row.notificationUrl()).append("\n\n");
@@ -154,7 +159,7 @@ public class EmailDispatchService {
 
     private String buildHtmlBody(NotificationRecipientRow row) {
         String title       = escHtml(safe(row.notificationTitle()));
-        String body        = escHtml(safe(row.notificationBody()));
+        String body        = escHtml(previewService.preview(row.notificationBody()));
         String url         = safe(row.notificationUrl());
         String topicBadge  = topicLabel(row.notificationTopic());
         String topicColor  = topicAccentColor(row.notificationTopic());

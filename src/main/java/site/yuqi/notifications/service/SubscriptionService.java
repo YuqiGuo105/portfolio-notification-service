@@ -77,6 +77,14 @@ public class SubscriptionService {
         return true;
     }
 
+    @Transactional
+    public boolean unsubscribeVerifiedSubscriber(UUID subscriberId, String source) {
+        if (subscriberId == null) return false;
+        int updated = subscriberRepo.unsubscribeIfActive(subscriberId, source);
+        recipientRepo.markPendingEmailSkippedForSubscriber(subscriberId);
+        return updated > 0;
+    }
+
     public Subscriber verify(UUID subscriberId, String rawToken) {
         if (subscriberId == null) throw new UnauthorizedException("missing subscriberId");
         Subscriber s = subscriberRepo.findById(subscriberId)

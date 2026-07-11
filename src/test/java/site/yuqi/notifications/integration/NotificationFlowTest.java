@@ -139,6 +139,23 @@ class NotificationFlowTest {
         assertFalse(subscriptionService.unsubscribeByToken("nope"));
     }
 
+    @Test
+    void verifiedUnsubscribeChangesStatusWithoutDeletingSubscriber() {
+        SubscribeResponse s = subscribe();
+
+        assertTrue(subscriptionService.unsubscribeVerifiedSubscriber(
+                s.subscriberId(), "CHAT_AGENT_EMAIL_OTP"));
+
+        Map<String, Object> row = jdbc.queryForMap(
+                "select status, unsubscribe_source, unsubscribed_at from public.subscribers where id = ?",
+                s.subscriberId());
+        assertEquals("UNSUBSCRIBED", row.get("status"));
+        assertEquals("CHAT_AGENT_EMAIL_OTP", row.get("unsubscribe_source"));
+        assertNotNull(row.get("unsubscribed_at"));
+        assertEquals(1, jdbc.queryForObject(
+                "select count(*) from public.subscribers where id = ?", Integer.class, s.subscriberId()));
+    }
+
     // ---------- End-to-end: process Kafka event -> fan-out -> list -> mark read ----------
 
     @Test
@@ -150,7 +167,8 @@ class NotificationFlowTest {
 
         String json = mapper.writeValueAsString(new ContentEvent(
                 "evt_1", "ARTICLE_PUBLISHED", "ARTICLE_UPDATES",
-                "BLOG", "blog_1", "New article", "summary",
+                "BLOG", "blog_1", "New article",
+                "<h1>Full article</h1> " + "long markdown **body** ".repeat(40),
                 "/blog-single/blog_1", OffsetDateTime.now(),
                 "ARTICLE_PUBLISHED:blog_1:v1", Map.of()));
 
@@ -165,6 +183,11 @@ class NotificationFlowTest {
         Integer notifCount = jdbc.queryForObject(
                 "select count(*) from public.notifications", Integer.class);
         assertEquals(1, notifCount);
+        String storedPreview = jdbc.queryForObject(
+                "select body from public.notifications", String.class);
+        assertNotNull(storedPreview);
+        assertTrue(storedPreview.length() <= 320);
+        assertFalse(storedPreview.contains("<h1>"));
 
         String auditStatus = jdbc.queryForObject(
                 "select status from public.content_event_audit where idempotency_key = ?",

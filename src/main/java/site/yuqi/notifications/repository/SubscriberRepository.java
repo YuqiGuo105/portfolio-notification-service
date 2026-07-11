@@ -52,6 +52,15 @@ public class SubscriberRepository {
                 rs -> rs.next() ? Optional.of(map(rs)) : Optional.<Subscriber>empty());
     }
 
+    public Optional<Subscriber> findByEmail(String email) {
+        return jdbc.query(
+                "select id, email, status, subscriber_token_hash, unsubscribe_token_hash, " +
+                        "       created_at, updated_at " +
+                        "  from public.subscribers where email = ?",
+                ps -> ps.setString(1, email),
+                rs -> rs.next() ? Optional.of(map(rs)) : Optional.<Subscriber>empty());
+    }
+
     public Optional<Subscriber> findByUnsubscribeTokenHash(String hash) {
         return jdbc.query(
                 "select id, email, status, subscriber_token_hash, unsubscribe_token_hash, " +
@@ -63,6 +72,15 @@ public class SubscriberRepository {
 
     public void setStatus(UUID id, String status) {
         jdbc.update("update public.subscribers set status = ? where id = ?", status, id);
+    }
+
+    public int unsubscribeIfActive(UUID id, String source) {
+        Integer rows = jdbc.update(
+                "update public.subscribers " +
+                        "   set status = 'UNSUBSCRIBED', unsubscribed_at = now(), unsubscribe_source = ? " +
+                        " where id = ? and status = 'ACTIVE'",
+                source, id);
+        return rows == null ? 0 : rows;
     }
 
     private static Subscriber map(java.sql.ResultSet rs) throws java.sql.SQLException {
