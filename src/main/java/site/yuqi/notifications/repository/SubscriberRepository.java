@@ -90,10 +90,9 @@ public class SubscriberRepository {
         StringBuilder sql = new StringBuilder("""
                 select s.id, s.email, s.status, s.created_at, s.updated_at,
                        s.unsubscribed_at, s.unsubscribe_source,
-                       coalesce(sum(case when p.email_enabled = true then 1 else 0 end), 0) as email_topic_count,
-                       coalesce(sum(case when p.web_enabled = true then 1 else 0 end), 0) as web_topic_count
+                       0 as email_topic_count,
+                       0 as web_topic_count
                   from public.subscribers s
-                  left join public.subscription_preferences p on p.subscriber_id = s.id
                  where 1=1
                 """);
         java.util.List<Object> params = new java.util.ArrayList<>();
@@ -105,12 +104,7 @@ public class SubscriberRepository {
             sql.append(" and lower(s.email) like ?");
             params.add("%" + query + "%");
         }
-        sql.append("""
-                 group by s.id, s.email, s.status, s.created_at, s.updated_at,
-                          s.unsubscribed_at, s.unsubscribe_source
-                 order by s.created_at desc
-                 limit ? offset ?
-                """);
+        sql.append(" order by s.created_at desc limit ? offset ?");
         params.add(limit);
         params.add(offset);
         return jdbc.query(sql.toString(), (rs, rowNum) -> mapAdmin(rs), params.toArray());
