@@ -87,33 +87,47 @@ public class SubscriberRepository {
 
     public List<AdminSubscriberItem> listForAdmin(
             String status, String query, int limit, int offset) {
-        String pattern = query == null ? null : "%" + query + "%";
-        return jdbc.query("""
-                        select s.id, s.email, s.status, s.created_at, s.updated_at,
-                               s.unsubscribed_at, s.unsubscribe_source,
-                               coalesce(sum(case when p.email_enabled = true then 1 else 0 end), 0) as email_topic_count,
-                               coalesce(sum(case when p.web_enabled = true then 1 else 0 end), 0) as web_topic_count
-                          from public.subscribers s
-                          left join public.subscription_preferences p on p.subscriber_id = s.id
-                         where (? is null or s.status = ?)
-                           and (? is null or lower(s.email) like ?)
-                         group by s.id, s.email, s.status, s.created_at, s.updated_at,
-                                  s.unsubscribed_at, s.unsubscribe_source
-                         order by s.created_at desc
-                         limit ? offset ?
-                        """,
-                (rs, rowNum) -> mapAdmin(rs),
-                status, status, pattern, pattern, limit, offset);
+        StringBuilder sql = new StringBuilder("""
+                select s.id, s.email, s.status, s.created_at, s.updated_at,
+                       s.unsubscribed_at, s.unsubscribe_source,
+                       coalesce(sum(case when p.email_enabled = true then 1 else 0 end), 0) as email_topic_count,
+                       coalesce(sum(case when p.web_enabled = true then 1 else 0 end), 0) as web_topic_count
+                  from public.subscribers s
+                  left join public.subscription_preferences p on p.subscriber_id = s.id
+                 where 1=1
+                """);
+        java.util.List<Object> params = new java.util.ArrayList<>();
+        if (status != null) {
+            sql.append(" and s.status = ?");
+            params.add(status);
+        }
+        if (query != null) {
+            sql.append(" and lower(s.email) like ?");
+            params.add("%" + query + "%");
+        }
+        sql.append("""
+                 group by s.id, s.email, s.status, s.created_at, s.updated_at,
+                          s.unsubscribed_at, s.unsubscribe_source
+                 order by s.created_at desc
+                 limit ? offset ?
+                """);
+        params.add(limit);
+        params.add(offset);
+        return jdbc.query(sql.toString(), (rs, rowNum) -> mapAdmin(rs), params.toArray());
     }
 
     public long countForAdmin(String status, String query) {
-        String pattern = query == null ? null : "%" + query + "%";
-        Long count = jdbc.queryForObject("""
-                        select count(*)
-                          from public.subscribers s
-                         where (? is null or s.status = ?)
-                           and (? is null or lower(s.email) like ?)
-                        """, Long.class, status, status, pattern, pattern);
+        StringBuilder sql = new StringBuilder("select count(*) from public.subscribers s where 1=1");
+        java.util.List<Object> params = new java.util.ArrayList<>();
+        if (status != null) {
+            sql.append(" and s.status = ?");
+            params.add(status);
+        }
+        if (query != null) {
+            sql.append(" and lower(s.email) like ?");
+            params.add("%" + query + "%");
+        }
+        Long count = jdbc.queryForObject(sql.toString(), Long.class, params.toArray());
         return count == null ? 0 : count;
     }
 
