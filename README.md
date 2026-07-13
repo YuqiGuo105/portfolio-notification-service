@@ -35,7 +35,7 @@ flowchart TB
 
         subgraph REST["🌐 REST API"]
             SUB_CTRL["📬 SubscriptionController\nsubscribe · preferences · unsubscribe"]
-            NOTIF_CTRL["🔔 NotificationController\nfeed · mark-read"]
+            NOTIF_CTRL["🔔 NotificationController\nfeed · mark-read · admin views"]
             HEALTH["💚 HealthController\nDB + Kafka composite"]
         end
 
@@ -133,6 +133,7 @@ flowchart TB
 | HTTP fallback for content events       | `ContentEventController` (`POST /api/content-events`) |
 | Email delivery worker                  | `EmailScheduler`         |
 | Dead-letter publishing                 | `DlqProducer`            |
+| Subscriber and delivery administration | `AdminNotificationController` (`/api/admin/**`) |
 
 ---
 
@@ -204,6 +205,9 @@ X-Internal-Token: <INTERNAL_API_TOKEN>
 | GET    | `/api/notifications?email=&unreadOnly=&limit=`    | Subscriber notification feed                                   |
 | POST   | `/api/notifications/{id}/read`                    | Mark single notification read                                  |
 | POST   | `/api/content-events`                             | HTTP fallback that mimics a Kafka event (admin-only)           |
+| GET    | `/api/admin/subscribers?status=&q=&limit=&offset=` | Safe subscriber projection; token hashes are never returned   |
+| PATCH  | `/api/admin/subscribers/{id}/status`              | Change `ACTIVE`, `UNSUBSCRIBED`, or `BOUNCED`; never deletes   |
+| GET    | `/api/admin/notifications?limit=&offset=`          | Notification events with recipient delivery summaries         |
 | GET    | `/api/health/notification`                        | Composite health (DB + Kafka), no auth                         |
 | GET    | `/actuator/health`                                | Spring health, no auth                                         |
 | GET    | `/swagger-ui.html`                                | Public (Swagger UI is unauthenticated, matching admin-service) |

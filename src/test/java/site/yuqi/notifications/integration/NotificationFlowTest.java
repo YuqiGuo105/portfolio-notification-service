@@ -17,6 +17,7 @@ import site.yuqi.notifications.dto.UpdatePreferencesRequest;
 import site.yuqi.notifications.exception.UnauthorizedException;
 import site.yuqi.notifications.service.ContentEventProcessor;
 import site.yuqi.notifications.service.ContentEventProcessor.Outcome;
+import site.yuqi.notifications.service.AdminNotificationService;
 import site.yuqi.notifications.service.NotificationService;
 import site.yuqi.notifications.service.SubscriptionService;
 
@@ -33,6 +34,7 @@ import static org.junit.jupiter.api.Assertions.*;
 class NotificationFlowTest {
 
     @Autowired private SubscriptionService subscriptionService;
+    @Autowired private AdminNotificationService adminNotificationService;
     @Autowired private ContentEventProcessor processor;
     @Autowired private NotificationService notificationService;
     @Autowired private ObjectMapper mapper;
@@ -156,6 +158,46 @@ class NotificationFlowTest {
                 "select count(*) from public.subscribers where id = ?", Integer.class, s.subscriberId()));
     }
 
+    @Test
+    void adminCanSearchSubscribersWithoutCredentialHashes() {
+        SubscribeResponse alice = subscribe("alice@example.com",
+                List.of("ARTICLE_UPDATES", "FEATURE_UPDATES"), List.of("WEB", "EMAIL"));
+        subscribe("bob@example.com", List.of("ARTICLE_UPDATES"), List.of("WEB"));
+
+        var result = adminNotificationService.listSubscribers("ACTIVE", "alice", 20, 0);
+
+        assertEquals(1, result.total());
+        assertEquals(alice.subscriberId(), result.items().getFirst().id());
+        assertEquals(2, result.items().getFirst().emailTopicCount());
+        assertEquals(2, result.items().getFirst().webTopicCount());
+    }
+
+    @Test
+    void adminUnsubscribeChangesStatusAndSkipsPendingEmailWithoutDeleting() {
+        SubscribeResponse subscriber = subscribe();
+        UUID notificationId = UUID.randomUUID();
+        UUID recipientId = UUID.randomUUID();
+        jdbc.update("insert into public.notifications (id, topic, title) values (?, 'ARTICLE_UPDATES', 't')",
+                notificationId);
+        jdbc.update("insert into public.notification_recipients " +
+                        " (id, notification_id, subscriber_id, channel, status, idempotency_key) " +
+                        " values (?, ?, ?, 'EMAIL', 'PENDING', ?)",
+                recipientId, notificationId, subscriber.subscriberId(),
+                notificationId + ":" + subscriber.subscriberId() + ":EMAIL");
+
+        var updated = adminNotificationService.updateSubscriberStatus(
+                subscriber.subscriberId(), "UNSUBSCRIBED");
+
+        assertEquals("UNSUBSCRIBED", updated.status());
+        assertEquals("ADMIN_CONSOLE", updated.unsubscribeSource());
+        assertEquals(1, jdbc.queryForObject(
+                "select count(*) from public.subscribers where id = ?", Integer.class,
+                subscriber.subscriberId()));
+        assertEquals("SKIPPED", jdbc.queryForObject(
+                "select status from public.notification_recipients where id = ?", String.class,
+                recipientId));
+    }
+
     // ---------- End-to-end: process Kafka event -> fan-out -> list -> mark read ----------
 
     @Test
@@ -238,6 +280,24 @@ class NotificationFlowTest {
         Integer recipientCount = jdbc.queryForObject(
                 "select count(*) from public.notification_recipients", Integer.class);
         assertEquals(2, recipientCount, "WEB+EMAIL once, not duplicated");
+    }
+
+    @Test
+    void adminNotificationListIncludesDeliverySummary() throws Exception {
+        subscribe("alice@example.com", List.of("ARTICLE_UPDATES"), List.of("WEB", "EMAIL"));
+        String json = mapper.writeValueAsString(new ContentEvent(
+                "evt_admin", "ARTICLE_PUBLISHED", "ARTICLE_UPDATES",
+                "BLOG", "blog_admin", "Admin-visible article", "preview",
+                "/blog-single/blog_admin", OffsetDateTime.now(),
+                "ARTICLE_PUBLISHED:blog_admin:v1", Map.of()));
+        processor.process(json, "portfolio.content-events", 0, "101");
+
+        var result = adminNotificationService.listNotifications(20, 0);
+
+        assertEquals(1, result.total());
+        assertEquals("Admin-visible article", result.items().getFirst().title());
+        assertEquals(2, result.items().getFirst().recipientCount());
+        assertEquals(2, result.items().getFirst().pendingCount());
     }
 
     @Test

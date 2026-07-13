@@ -4,8 +4,10 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
 import site.yuqi.notifications.domain.Subscriber;
+import site.yuqi.notifications.dto.AdminSubscriberItem;
 
 import java.time.OffsetDateTime;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -83,6 +85,73 @@ public class SubscriberRepository {
         return rows == null ? 0 : rows;
     }
 
+    public List<AdminSubscriberItem> listForAdmin(
+            String status, String query, int limit, int offset) {
+        String pattern = query == null ? null : "%" + query + "%";
+        return jdbc.query("""
+                        select s.id, s.email, s.status, s.created_at, s.updated_at,
+                               s.unsubscribed_at, s.unsubscribe_source,
+                               coalesce(sum(case when p.email_enabled = true then 1 else 0 end), 0) as email_topic_count,
+                               coalesce(sum(case when p.web_enabled = true then 1 else 0 end), 0) as web_topic_count
+                          from public.subscribers s
+                          left join public.subscription_preferences p on p.subscriber_id = s.id
+                         where (? is null or s.status = ?)
+                           and (? is null or lower(s.email) like ?)
+                         group by s.id, s.email, s.status, s.created_at, s.updated_at,
+                                  s.unsubscribed_at, s.unsubscribe_source
+                         order by s.created_at desc
+                         limit ? offset ?
+                        """,
+                (rs, rowNum) -> mapAdmin(rs),
+                status, status, pattern, pattern, limit, offset);
+    }
+
+    public long countForAdmin(String status, String query) {
+        String pattern = query == null ? null : "%" + query + "%";
+        Long count = jdbc.queryForObject("""
+                        select count(*)
+                          from public.subscribers s
+                         where (? is null or s.status = ?)
+                           and (? is null or lower(s.email) like ?)
+                        """, Long.class, status, status, pattern, pattern);
+        return count == null ? 0 : count;
+    }
+
+    public Optional<AdminSubscriberItem> findAdminItem(UUID id) {
+        return jdbc.query("""
+                        select s.id, s.email, s.status, s.created_at, s.updated_at,
+                               s.unsubscribed_at, s.unsubscribe_source,
+                               coalesce(sum(case when p.email_enabled = true then 1 else 0 end), 0) as email_topic_count,
+                               coalesce(sum(case when p.web_enabled = true then 1 else 0 end), 0) as web_topic_count
+                          from public.subscribers s
+                          left join public.subscription_preferences p on p.subscriber_id = s.id
+                         where s.id = ?
+                         group by s.id, s.email, s.status, s.created_at, s.updated_at,
+                                  s.unsubscribed_at, s.unsubscribe_source
+                        """,
+                ps -> ps.setObject(1, id),
+                rs -> rs.next() ? Optional.of(mapAdmin(rs)) : Optional.empty());
+    }
+
+    public int updateStatusForAdmin(UUID id, String status) {
+        if ("UNSUBSCRIBED".equals(status)) {
+            return jdbc.update("""
+                    update public.subscribers
+                       set status = 'UNSUBSCRIBED', unsubscribed_at = now(),
+                           unsubscribe_source = 'ADMIN_CONSOLE'
+                     where id = ?
+                    """, id);
+        }
+        if ("ACTIVE".equals(status)) {
+            return jdbc.update("""
+                    update public.subscribers
+                       set status = 'ACTIVE', unsubscribed_at = null, unsubscribe_source = null
+                     where id = ?
+                    """, id);
+        }
+        return jdbc.update("update public.subscribers set status = 'BOUNCED' where id = ?", id);
+    }
+
     private static Subscriber map(java.sql.ResultSet rs) throws java.sql.SQLException {
         return new Subscriber(
                 (UUID) rs.getObject("id"),
@@ -93,6 +162,19 @@ public class SubscriberRepository {
                 toOdt(rs.getTimestamp("created_at")),
                 toOdt(rs.getTimestamp("updated_at"))
         );
+    }
+
+    private static AdminSubscriberItem mapAdmin(java.sql.ResultSet rs) throws java.sql.SQLException {
+        return new AdminSubscriberItem(
+                (UUID) rs.getObject("id"),
+                rs.getString("email"),
+                rs.getString("status"),
+                rs.getInt("email_topic_count"),
+                rs.getInt("web_topic_count"),
+                toOdt(rs.getTimestamp("created_at")),
+                toOdt(rs.getTimestamp("updated_at")),
+                toOdt(rs.getTimestamp("unsubscribed_at")),
+                rs.getString("unsubscribe_source"));
     }
 
     private static OffsetDateTime toOdt(java.sql.Timestamp ts) {
