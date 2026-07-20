@@ -14,6 +14,7 @@ spring:
   flyway:
     enabled: true
     locations: classpath:db/migration
+    table: notification_flyway_schema_history
     # The Supabase `public` schema already contains existing Portfolio tables
     # (blogs, life_blogs, cv_content, …) that pre-date this service. We must
     # baseline at version 0 so V1__initial_schema.sql actually runs.
@@ -41,24 +42,28 @@ spring:
       ssl.truststore.certificates: ${KAFKA_CA_CERT:}
     consumer:
       group-id: ${KAFKA_CONSUMER_GROUP:portfolio-notification-consumer-group}
-      # For the migration to the new content.notification.*.v1 topics we start at
-      # the tip so historical events published before this consumer subscribed
-      # are not replayed. Idempotency is enforced on top of this by
-      # content_event_audit.idempotency_key.
-      auto-offset-reset: latest
+      # Rebuild from retained Kafka data when a group is recreated. Durable
+      # content_event_audit idempotency makes historical replay safe.
+      auto-offset-reset: earliest
       enable-auto-commit: false
       key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
       value-deserializer: org.apache.kafka.common.serialization.StringDeserializer
       properties:
         max.poll.records: 50
         session.timeout.ms: 30000
+        max.poll.interval.ms: 300000
+        isolation.level: read_committed
     producer:
       key-serializer: org.apache.kafka.common.serialization.StringSerializer
       value-serializer: org.apache.kafka.common.serialization.StringSerializer
       acks: all
-      retries: 5
+      retries: 2147483647
+      properties:
+        enable.idempotence: true
+        max.in.flight.requests.per.connection: 5
+        delivery.timeout.ms: 120000
     listener:
-      ack-mode: manual
+      ack-mode: manual_immediate
       missing-topics-fatal: false
 
   mail:
@@ -163,6 +168,7 @@ springdoc:
   #   openssl rand -hex 32
   internal-token: ${INTERNAL_API_TOKEN:}
   kafka:
+    retry-interval-ms: ${KAFKA_RETRY_INTERVAL_MS:2000}
     content-events-topic: ${KAFKA_TOPIC_CONTENT_EVENTS:portfolio.content-events}
     dlq-topic: ${KAFKA_TOPIC_DLQ:portfolio.dlq}
     # Notification-domain topics published by portfolio-admin-service.

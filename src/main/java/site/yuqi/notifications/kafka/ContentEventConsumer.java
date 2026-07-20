@@ -50,20 +50,13 @@ public class ContentEventConsumer {
                 ack.acknowledge();
                 break;
             case DLQ:
-                dlq.publish(rec.key(), value == null ? "" : value,
+                dlq.publishOrThrow(rec.key(), value == null ? "" : value,
                         "invalid event at " + topic + "-" + partition + "@" + offset);
                 ack.acknowledge();
                 break;
             case RETRY:
             default:
-                // Do not ack; container will redeliver after the next poll (or after a rebalance).
-                // We sleep briefly to avoid a tight retry loop during sustained DB outages.
-                try {
-                    Thread.sleep(2000L);
-                } catch (InterruptedException ie) {
-                    Thread.currentThread().interrupt();
-                }
-                break;
+                throw new IllegalStateException("Transient content-event processing failure");
         }
     }
 }

@@ -88,7 +88,14 @@ public class SubscriberRepository {
     public List<AdminSubscriberItem> listForAdmin(
             String status, String query, int limit, int offset) {
         StringBuilder sql = new StringBuilder("""
-                select s.id, s.email, s.status, s.created_at, s.updated_at
+                select s.id, s.email, s.status, s.created_at, s.updated_at,
+                       s.unsubscribed_at, s.unsubscribe_source,
+                       (select count(*)
+                          from public.subscription_preferences p
+                         where p.subscriber_id = s.id and p.email_enabled = true) as email_topic_count,
+                       (select count(*)
+                          from public.subscription_preferences p
+                         where p.subscriber_id = s.id and p.web_enabled = true) as web_topic_count
                   from public.subscribers s
                  where 1=1
                 """);
@@ -124,7 +131,14 @@ public class SubscriberRepository {
 
     public Optional<AdminSubscriberItem> findAdminItem(UUID id) {
         return jdbc.query("""
-                        select s.id, s.email, s.status, s.created_at, s.updated_at
+                        select s.id, s.email, s.status, s.created_at, s.updated_at,
+                               s.unsubscribed_at, s.unsubscribe_source,
+                               (select count(*)
+                                  from public.subscription_preferences p
+                                 where p.subscriber_id = s.id and p.email_enabled = true) as email_topic_count,
+                               (select count(*)
+                                  from public.subscription_preferences p
+                                 where p.subscriber_id = s.id and p.web_enabled = true) as web_topic_count
                           from public.subscribers s
                          where s.id = ?
                         """,
@@ -135,11 +149,15 @@ public class SubscriberRepository {
     public int updateStatusForAdmin(UUID id, String status) {
         if ("UNSUBSCRIBED".equals(status)) {
             return jdbc.update(
-                    "update public.subscribers set status = 'UNSUBSCRIBED' where id = ?", id);
+                    "update public.subscribers " +
+                            "set status = 'UNSUBSCRIBED', unsubscribed_at = now(), " +
+                            "unsubscribe_source = 'ADMIN_CONSOLE' where id = ?", id);
         }
         if ("ACTIVE".equals(status)) {
             return jdbc.update(
-                    "update public.subscribers set status = 'ACTIVE' where id = ?", id);
+                    "update public.subscribers " +
+                            "set status = 'ACTIVE', unsubscribed_at = null, unsubscribe_source = null " +
+                            "where id = ?", id);
         }
         return jdbc.update("update public.subscribers set status = 'BOUNCED' where id = ?", id);
     }
@@ -161,12 +179,12 @@ public class SubscriberRepository {
                 (UUID) rs.getObject("id"),
                 rs.getString("email"),
                 rs.getString("status"),
-                0,
-                0,
+                rs.getInt("email_topic_count"),
+                rs.getInt("web_topic_count"),
                 toOdt(rs.getTimestamp("created_at")),
                 toOdt(rs.getTimestamp("updated_at")),
-                null,
-                null);
+                toOdt(rs.getTimestamp("unsubscribed_at")),
+                rs.getString("unsubscribe_source"));
     }
 
     private static OffsetDateTime toOdt(java.sql.Timestamp ts) {

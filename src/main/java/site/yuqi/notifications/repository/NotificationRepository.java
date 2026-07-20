@@ -16,12 +16,35 @@ public class NotificationRepository {
     private final JdbcTemplate jdbc;
 
     public UUID insert(UUID eventAuditId, String topic, String title, String body, String url) {
+        if (!isPostgres()) {
+            List<UUID> existing = jdbc.query(
+                    "select id from public.notifications where event_audit_id = ?",
+                    (rs, rowNum) -> (UUID) rs.getObject(1), eventAuditId);
+            if (!existing.isEmpty()) return existing.getFirst();
+            UUID id = UUID.randomUUID();
+            jdbc.update(
+                    "insert into public.notifications (id, event_audit_id, topic, title, body, url) " +
+                            "values (?, ?, ?, ?, ?, ?)",
+                    id, eventAuditId, topic, title, body, url);
+            return id;
+        }
         UUID id = UUID.randomUUID();
-        jdbc.update(
-                "insert into public.notifications (id, event_audit_id, topic, title, body, url) " +
-                        "values (?, ?, ?, ?, ?, ?)",
+        jdbc.update("""
+                insert into public.notifications (id, event_audit_id, topic, title, body, url)
+                values (?, ?, ?, ?, ?, ?)
+                on conflict (event_audit_id) where event_audit_id is not null
+                do update set event_audit_id = excluded.event_audit_id
+                """,
                 id, eventAuditId, topic, title, body, url);
-        return id;
+        return jdbc.queryForObject(
+                "select id from public.notifications where event_audit_id = ?",
+                (rs, rowNum) -> (UUID) rs.getObject(1), eventAuditId);
+    }
+
+    private boolean isPostgres() {
+        Boolean result = jdbc.execute((org.springframework.jdbc.core.ConnectionCallback<Boolean>) connection ->
+                connection.getMetaData().getDatabaseProductName().toLowerCase().contains("postgresql"));
+        return Boolean.TRUE.equals(result);
     }
 
     public List<AdminNotificationItem> listForAdmin(int limit, int offset) {

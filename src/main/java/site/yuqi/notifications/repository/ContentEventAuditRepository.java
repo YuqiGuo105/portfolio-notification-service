@@ -43,21 +43,37 @@ public class ContentEventAuditRepository {
             String payloadJson, String idempotencyKey) {
 
         UUID id = UUID.randomUUID();
-        try {
+        if (!isPostgres()) {
+            Optional<AuditSummary> existing = findByIdempotencyKey(idempotencyKey);
+            if (existing.isPresent()) return existing.get().id();
             jdbc.update(
                     "insert into public.content_event_audit " +
-                            "  (id, kafka_topic, kafka_partition, kafka_offset, event_id, event_type, topic, " +
-                            "   source_type, source_id, title, summary, url, payload, status, idempotency_key) " +
+                            "(id, kafka_topic, kafka_partition, kafka_offset, event_id, event_type, topic, " +
+                            "source_type, source_id, title, summary, url, payload, status, idempotency_key) " +
                             "values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'PROCESSING', ?)",
-                    id, kafkaTopic, kafkaPartition, kafkaOffset,
-                    eventId, eventType, topic, sourceType, sourceId,
-                    title, summary, url, payloadJson, idempotencyKey);
+                    id, kafkaTopic, kafkaPartition, kafkaOffset, eventId, eventType, topic,
+                    sourceType, sourceId, title, summary, url, payloadJson, idempotencyKey);
             return id;
-        } catch (org.springframework.dao.DuplicateKeyException dup) {
-            return findByIdempotencyKey(idempotencyKey)
-                    .map(AuditSummary::id)
-                    .orElseThrow(() -> dup);
         }
+        jdbc.update("""
+                insert into public.content_event_audit
+                    (id, kafka_topic, kafka_partition, kafka_offset, event_id, event_type, topic,
+                     source_type, source_id, title, summary, url, payload, status, idempotency_key)
+                values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'PROCESSING', ?)
+                on conflict (idempotency_key) do nothing
+                """,
+                id, kafkaTopic, kafkaPartition, kafkaOffset,
+                eventId, eventType, topic, sourceType, sourceId,
+                title, summary, url, payloadJson, idempotencyKey);
+        return findByIdempotencyKey(idempotencyKey)
+                .map(AuditSummary::id)
+                .orElseThrow(() -> new IllegalStateException("idempotency row disappeared"));
+    }
+
+    private boolean isPostgres() {
+        Boolean result = jdbc.execute((org.springframework.jdbc.core.ConnectionCallback<Boolean>) connection ->
+                connection.getMetaData().getDatabaseProductName().toLowerCase().contains("postgresql"));
+        return Boolean.TRUE.equals(result);
     }
 
     public void markDone(UUID id) {

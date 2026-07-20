@@ -77,14 +77,56 @@ public class NotificationRecipientRepository {
     }
 
     /**
-     * Claim a batch of EMAIL rows for dispatch by flipping PENDING/FAILED → PENDING_CLAIMED-like state.
-     * For simplicity we keep status = PENDING but bump next_retry_at far into the future so other
-     * workers don't pick them up while we send. Returns the claimed rows joined with notification data.
-     *
-     * NOTE: For multi-worker safety, in production prefer SELECT ... FOR UPDATE SKIP LOCKED inside
-     * a transaction. For a single Cloud Run worker this two-step approach is sufficient.
+     * Claims EMAIL rows by leasing them through {@code next_retry_at}. PostgreSQL uses one
+     * statement with {@code FOR UPDATE SKIP LOCKED}; the fallback keeps integration tests
+     * portable on H2.
      */
     public List<NotificationRecipientRow> claimEmailBatch(int batchSize, int maxRetry) {
+        if (isPostgres()) {
+            return claimEmailBatchPostgres(batchSize, maxRetry);
+        }
+        return claimEmailBatchPortable(batchSize, maxRetry);
+    }
+
+    private List<NotificationRecipientRow> claimEmailBatchPostgres(int batchSize, int maxRetry) {
+        java.sql.Timestamp now = java.sql.Timestamp.from(java.time.Instant.now());
+        java.sql.Timestamp leaseUntil = java.sql.Timestamp.from(
+                java.time.Instant.now().plusSeconds(600));
+        String sql = """
+                with picked as (
+                    select id
+                      from public.notification_recipients
+                     where channel = 'EMAIL'
+                       and status in ('PENDING','FAILED')
+                       and (next_retry_at is null or next_retry_at <= ?)
+                       and retry_count < ?
+                     order by created_at asc
+                     limit ?
+                     for update skip locked
+                ), claimed as (
+                    update public.notification_recipients r
+                       set next_retry_at = ?
+                      from picked
+                     where r.id = picked.id
+                    returning r.*
+                )
+                select c.id, c.notification_id, c.subscriber_id, c.channel, c.status,
+                       c.retry_count, c.next_retry_at, c.sent_at, c.read_at, c.last_error,
+                       c.idempotency_key, c.created_at,
+                       n.topic as n_topic, n.title as n_title, n.body as n_body, n.url as n_url
+                  from claimed c
+                  join public.notifications n on n.id = c.notification_id
+                 order by c.created_at asc
+                """;
+        return jdbc.query(sql, ps -> {
+            ps.setTimestamp(1, now);
+            ps.setInt(2, maxRetry);
+            ps.setInt(3, batchSize);
+            ps.setTimestamp(4, leaseUntil);
+        }, (rs, n) -> map(rs));
+    }
+
+    private List<NotificationRecipientRow> claimEmailBatchPortable(int batchSize, int maxRetry) {
         // 1) Pick candidate ids
         List<UUID> ids = jdbc.query(
                 "select id from public.notification_recipients " +
@@ -128,6 +170,12 @@ public class NotificationRecipientRepository {
         return jdbc.query(sql, ps -> {
             for (int i = 0; i < ids.size(); i++) ps.setObject(i + 1, ids.get(i));
         }, (rs, n) -> map(rs));
+    }
+
+    private boolean isPostgres() {
+        Boolean result = jdbc.execute((org.springframework.jdbc.core.ConnectionCallback<Boolean>) connection ->
+                connection.getMetaData().getDatabaseProductName().toLowerCase().contains("postgresql"));
+        return Boolean.TRUE.equals(result);
     }
 
     public void markSent(UUID id) {

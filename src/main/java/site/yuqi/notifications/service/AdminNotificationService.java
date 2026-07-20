@@ -4,14 +4,17 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import site.yuqi.notifications.dto.AdminNotificationListResponse;
+import site.yuqi.notifications.dto.AdminAlertSubscriptionItem;
 import site.yuqi.notifications.dto.AdminSubscriberItem;
 import site.yuqi.notifications.dto.AdminSubscriberListResponse;
 import site.yuqi.notifications.exception.NotFoundException;
 import site.yuqi.notifications.repository.NotificationRecipientRepository;
+import site.yuqi.notifications.repository.AdminAlertSubscriptionRepository;
 import site.yuqi.notifications.repository.NotificationRepository;
 import site.yuqi.notifications.repository.SubscriberRepository;
 
 import java.util.Locale;
+import java.util.List;
 import java.util.Set;
 import java.util.UUID;
 
@@ -25,6 +28,7 @@ public class AdminNotificationService {
     private final SubscriberRepository subscriberRepository;
     private final NotificationRepository notificationRepository;
     private final NotificationRecipientRepository recipientRepository;
+    private final AdminAlertSubscriptionRepository adminAlertSubscriptionRepository;
 
     public AdminSubscriberListResponse listSubscribers(
             String status, String query, int limit, int offset) {
@@ -59,6 +63,20 @@ public class AdminNotificationService {
                 notificationRepository.countForAdmin(),
                 safeLimit,
                 safeOffset);
+    }
+
+    public List<AdminAlertSubscriptionItem> listAdminAlertSubscriptions() {
+        return adminAlertSubscriptionRepository.list();
+    }
+
+    @Transactional
+    public AdminAlertSubscriptionItem upsertAdminAlertSubscription(String email, Boolean enabled) {
+        AdminAlertSubscriptionItem item = adminAlertSubscriptionRepository.upsertByEmail(
+                email.trim(), enabled == null || enabled);
+        if (item == null) {
+            throw new NotFoundException("subscriber email not found");
+        }
+        return item;
     }
 
     private static String normalizeOptionalStatus(String value) {

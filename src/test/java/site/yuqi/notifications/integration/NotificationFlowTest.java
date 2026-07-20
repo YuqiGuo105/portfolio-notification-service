@@ -45,6 +45,7 @@ class NotificationFlowTest {
         jdbc.update("delete from public.notification_recipients");
         jdbc.update("delete from public.notifications");
         jdbc.update("delete from public.content_event_audit");
+        jdbc.update("delete from public.admin_alert_subscriptions");
         jdbc.update("delete from public.subscription_preferences");
         jdbc.update("delete from public.subscribers");
     }
@@ -280,6 +281,31 @@ class NotificationFlowTest {
         Integer recipientCount = jdbc.queryForObject(
                 "select count(*) from public.notification_recipients", Integer.class);
         assertEquals(2, recipientCount, "WEB+EMAIL once, not duplicated");
+    }
+
+    @Test
+    void adminAlertIsPrivateEmailOnlyAndIdempotent() throws Exception {
+        SubscribeResponse admin = subscribe(
+                "admin@example.com", List.of("ARTICLE_UPDATES"), List.of("WEB"));
+        var subscription = adminNotificationService.upsertAdminAlertSubscription(
+                "admin@example.com", true);
+        assertEquals(admin.subscriberId(), subscription.subscriberId());
+
+        String json = mapper.writeValueAsString(new ContentEvent(
+                "alert_evt_1", "ANALYTICS_ALERT_TRIGGERED", "ADMIN_ALERTS",
+                "ALERT", "rule_1", "Alert: Visitor from Texas", "measured 1",
+                null, OffsetDateTime.now(), "incident:42", Map.of("ruleId", 1)));
+
+        assertEquals(Outcome.DONE, processor.process(json, "http-trigger", null, "42"));
+        assertEquals(Outcome.DONE, processor.process(json, "http-trigger", null, "42"));
+
+        assertEquals(1, jdbc.queryForObject(
+                "select count(*) from public.notifications where topic = 'ADMIN_ALERTS'", Integer.class));
+        assertEquals(1, jdbc.queryForObject(
+                "select count(*) from public.notification_recipients where channel = 'EMAIL'", Integer.class));
+        assertEquals(0, jdbc.queryForObject(
+                "select count(*) from public.notification_recipients where channel = 'WEB'", Integer.class));
+        assertEquals(1, adminNotificationService.listAdminAlertSubscriptions().size());
     }
 
     @Test

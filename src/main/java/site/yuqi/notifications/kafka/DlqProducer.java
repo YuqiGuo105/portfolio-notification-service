@@ -29,15 +29,23 @@ public class DlqProducer {
      */
     public void publish(String key, String payload, String reason) {
         try {
+            publishOrThrow(key, payload, reason);
+        } catch (RuntimeException e) {
+            log.error("{\"event\":\"dlq_publish_failed\",\"reason\":\"{}\",\"err\":\"{}\"}",
+                    reason, e.getMessage());
+        }
+    }
+
+    public void publishOrThrow(String key, String payload, String reason) {
+        try {
             kafka.send(dlqTopic, key, payload).get(5, TimeUnit.SECONDS);
             log.warn("{\"event\":\"dlq_published\",\"topic\":\"{}\",\"key\":\"{}\",\"reason\":\"{}\"}",
                     dlqTopic, key, reason);
         } catch (InterruptedException ie) {
             Thread.currentThread().interrupt();
-            log.error("{\"event\":\"dlq_interrupted\",\"reason\":\"{}\"}", reason);
+            throw new IllegalStateException("DLQ publish interrupted", ie);
         } catch (ExecutionException | TimeoutException e) {
-            log.error("{\"event\":\"dlq_publish_failed\",\"reason\":\"{}\",\"err\":\"{}\"}",
-                    reason, e.getMessage());
+            throw new IllegalStateException("DLQ publish failed", e);
         }
     }
 }

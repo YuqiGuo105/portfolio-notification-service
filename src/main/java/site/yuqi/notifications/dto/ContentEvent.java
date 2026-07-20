@@ -46,6 +46,7 @@ public record ContentEvent(
             case "BLOG", "LIFE_BLOG" -> "ARTICLE_PUBLISHED";
             case "PROJECT"           -> "FEATURE_RELEASED";
             case "EXPERIENCE"        -> "JOB_POSITION_UPDATED";
+            case "ALERT"             -> "ANALYTICS_ALERT_TRIGGERED";
             default                  -> null;
         };
     }
@@ -71,6 +72,7 @@ public record ContentEvent(
             case "ARTICLE_UPDATED":
             case "FEATURE_RELEASED":
             case "JOB_POSITION_UPDATED":
+            case "ANALYTICS_ALERT_TRIGGERED":
                 return true;
             default:
                 return false;
@@ -83,6 +85,7 @@ public record ContentEvent(
             case "ARTICLE_UPDATES":
             case "FEATURE_UPDATES":
             case "JOB_UPDATES":
+            case "ADMIN_ALERTS":
                 return true;
             default:
                 return false;

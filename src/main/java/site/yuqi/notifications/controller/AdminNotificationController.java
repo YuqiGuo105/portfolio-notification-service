@@ -5,18 +5,22 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
+import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import site.yuqi.notifications.dto.AdminNotificationListResponse;
+import site.yuqi.notifications.dto.AdminAlertSubscriptionItem;
 import site.yuqi.notifications.dto.AdminSubscriberItem;
 import site.yuqi.notifications.dto.AdminSubscriberListResponse;
 import site.yuqi.notifications.dto.UpdateSubscriberStatusRequest;
+import site.yuqi.notifications.dto.UpsertAdminAlertSubscriptionRequest;
 import site.yuqi.notifications.service.AdminNotificationService;
 
 import java.util.UUID;
+import java.util.List;
 
 @RestController
 @RequestMapping("/api/admin")
@@ -46,5 +50,16 @@ public class AdminNotificationController {
             @RequestParam(value = "limit", defaultValue = "50") int limit,
             @RequestParam(value = "offset", defaultValue = "0") int offset) {
         return ResponseEntity.ok(service.listNotifications(limit, offset));
+    }
+
+    @GetMapping("/alert-subscriptions")
+    public ResponseEntity<List<AdminAlertSubscriptionItem>> listAlertSubscriptions() {
+        return ResponseEntity.ok(service.listAdminAlertSubscriptions());
+    }
+
+    @PostMapping("/alert-subscriptions")
+    public ResponseEntity<AdminAlertSubscriptionItem> upsertAlertSubscription(
+            @Valid @RequestBody UpsertAdminAlertSubscriptionRequest request) {
+        return ResponseEntity.ok(service.upsertAdminAlertSubscription(request.email(), request.enabled()));
     }
 }

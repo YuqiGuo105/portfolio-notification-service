@@ -8,6 +8,7 @@ set schema public;
 drop table if exists public.notification_recipients;
 drop table if exists public.notifications;
 drop table if exists public.content_event_audit;
+drop table if exists public.admin_alert_subscriptions;
 drop table if exists public.subscription_preferences;
 drop table if exists public.subscribers;
 
@@ -32,6 +33,14 @@ create table public.subscription_preferences (
     created_at      timestamp with time zone not null default current_timestamp,
     updated_at      timestamp with time zone not null default current_timestamp,
     constraint subscription_preferences_unique unique (subscriber_id, topic),
+    foreign key (subscriber_id) references public.subscribers(id) on delete cascade
+);
+
+create table public.admin_alert_subscriptions (
+    subscriber_id uuid primary key,
+    enabled boolean not null default true,
+    created_at timestamp with time zone not null default current_timestamp,
+    updated_at timestamp with time zone not null default current_timestamp,
     foreign key (subscriber_id) references public.subscribers(id) on delete cascade
 );
 
@@ -66,7 +75,8 @@ create table public.notifications (
     body            clob,
     url             varchar(1024),
     created_at      timestamp with time zone not null default current_timestamp,
-    foreign key (event_audit_id) references public.content_event_audit(id) on delete set null
+    foreign key (event_audit_id) references public.content_event_audit(id) on delete set null,
+    unique (event_audit_id)
 );
 
 create table public.notification_recipients (

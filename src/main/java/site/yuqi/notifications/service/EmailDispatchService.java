@@ -77,9 +77,19 @@ public class EmailDispatchService {
         // 1. Check subscriber status & fetch email
         Map<String, Object> subRow;
         try {
-            subRow = jdbc.queryForMap(
-                    "select email, status from public.subscribers where id = ?",
-                    row.subscriberId());
+            if ("ADMIN_ALERTS".equals(row.notificationTopic())) {
+                subRow = jdbc.queryForMap("""
+                        select s.email,
+                               case when a.enabled then 'ACTIVE' else 'DISABLED' end as status
+                          from public.subscribers s
+                          join public.admin_alert_subscriptions a on a.subscriber_id = s.id
+                         where s.id = ?
+                        """, row.subscriberId());
+            } else {
+                subRow = jdbc.queryForMap(
+                        "select email, status from public.subscribers where id = ?",
+                        row.subscriberId());
+            }
         } catch (DataAccessException e) {
             recipientRepo.markFailed(row.id(), "subscriber lookup failed: " + e.getMessage(),
                     nextBackoff(row.retryCount()));
@@ -130,6 +140,7 @@ public class EmailDispatchService {
             case "ARTICLE_UPDATES"  -> "New Article";
             case "FEATURE_UPDATES"  -> "New Feature";
             case "JOB_UPDATES"      -> "Career Update";
+            case "ADMIN_ALERTS"     -> "Admin Alert";
             default                 -> "Update";
         };
         return "[yuqi.site] " + prefix + ": " + safe(row.notificationTitle());
@@ -148,9 +159,13 @@ public class EmailDispatchService {
             sb.append("Read more: ").append(row.notificationUrl()).append("\n\n");
         }
         sb.append("---\n");
-        sb.append("You are receiving this email because you subscribed to ")
-                .append(topicLabel(row.notificationTopic()))
-                .append(" on yuqi.site.\n");
+        if ("ADMIN_ALERTS".equals(row.notificationTopic())) {
+            sb.append("Private operational alert for a yuqi.site administrator.\n");
+        } else {
+            sb.append("You are receiving this email because you subscribed to ")
+                    .append(topicLabel(row.notificationTopic()))
+                    .append(" on yuqi.site.\n");
+        }
         sb.append("Visit: https://www.yuqi.site\n");
         return sb.toString();
     }
@@ -164,6 +179,11 @@ public class EmailDispatchService {
         String topicBadge  = topicLabel(row.notificationTopic());
         String topicColor  = topicAccentColor(row.notificationTopic());
         String topicIcon   = topicIcon(row.notificationTopic());
+        String footerReason = "ADMIN_ALERTS".equals(row.notificationTopic())
+                ? "Private operational alert for a yuqi.site administrator."
+                : "You are receiving this email because you subscribed to <strong style=\"color:#94a3b8;\">"
+                    + topicBadge + "</strong> on <a href=\"https://www.yuqi.site\" style=\"color:"
+                    + topicColor + ";text-decoration:none;\">yuqi.site</a>.";
 
         String ctaBlock = notBlank(url) ? """
                 <tr>
@@ -280,10 +300,7 @@ public class EmailDispatchService {
                           <tr>
                             <td style="padding:24px 40px 36px;">
                               <p style="margin:0 0 8px;font-size:13px;color:#475569;line-height:1.6;">
-                                You are receiving this email because you subscribed to
-                                <strong style="color:#94a3b8;">%s</strong> on
-                                <a href="https://www.yuqi.site"
-                                   style="color:%s;text-decoration:none;">yuqi.site</a>.
+                                %s
                               </p>
                               <p style="margin:0;font-size:12px;color:#334155;">
                                 &copy; 2025&ndash;%d Yuqi Guo &middot; Vancouver, BC
@@ -312,8 +329,7 @@ public class EmailDispatchService {
                         title,           // heading
                         bodyBlock,       // summary paragraph
                         ctaBlock,        // CTA button
-                        topicBadge,      // footer topic name
-                        topicColor,      // footer link color
+                        footerReason,    // private admin or public subscription reason
                         java.time.Year.now().getValue()  // year
                 );
     }
@@ -325,6 +341,7 @@ public class EmailDispatchService {
             case "ARTICLE_UPDATES"  -> "Articles &amp; Blog";
             case "FEATURE_UPDATES"  -> "Projects &amp; Features";
             case "JOB_UPDATES"      -> "Career Updates";
+            case "ADMIN_ALERTS"     -> "Admin Operations";
             default                 -> safe(topic);
         };
     }
@@ -334,6 +351,7 @@ public class EmailDispatchService {
             case "ARTICLE_UPDATES"  -> "#6366f1";   // indigo
             case "FEATURE_UPDATES"  -> "#10b981";   // emerald
             case "JOB_UPDATES"      -> "#f59e0b";   // amber
+            case "ADMIN_ALERTS"     -> "#ef4444";   // red
             default                 -> "#6366f1";
         };
     }

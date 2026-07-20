@@ -6,9 +6,11 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.interceptor.TransactionAspectSupport;
 import site.yuqi.notifications.domain.SubscriptionPreference;
 import site.yuqi.notifications.dto.ContentEvent;
 import site.yuqi.notifications.repository.ContentEventAuditRepository;
+import site.yuqi.notifications.repository.AdminAlertSubscriptionRepository;
 import site.yuqi.notifications.repository.ContentEventAuditRepository.AuditSummary;
 import site.yuqi.notifications.repository.NotificationRecipientRepository;
 import site.yuqi.notifications.repository.NotificationRepository;
@@ -23,6 +25,7 @@ public class ContentEventProcessor {
 
     private final ContentEventAuditRepository auditRepo;
     private final SubscriptionPreferenceRepository prefRepo;
+    private final AdminAlertSubscriptionRepository adminAlertRepo;
     private final NotificationRepository notificationRepo;
     private final NotificationRecipientRepository recipientRepo;
     private final ObjectMapper objectMapper;
@@ -31,6 +34,7 @@ public class ContentEventProcessor {
 
     public ContentEventProcessor(ContentEventAuditRepository auditRepo,
                                  SubscriptionPreferenceRepository prefRepo,
+                                 AdminAlertSubscriptionRepository adminAlertRepo,
                                  NotificationRepository notificationRepo,
                                  NotificationRecipientRepository recipientRepo,
                                  ObjectMapper objectMapper,
@@ -38,6 +42,7 @@ public class ContentEventProcessor {
                                  @Value("${portfolio.base-url:https://www.yuqi.site}") String baseUrl) {
         this.auditRepo = auditRepo;
         this.prefRepo = prefRepo;
+        this.adminAlertRepo = adminAlertRepo;
         this.notificationRepo = notificationRepo;
         this.recipientRepo = recipientRepo;
         this.objectMapper = objectMapper;
@@ -100,6 +105,7 @@ public class ContentEventProcessor {
         } catch (Exception dbErr) {
             log.error("{\"event\":\"audit_insert_failed\",\"idempotencyKey\":\"{}\",\"err\":\"{}\"}",
                     event.idempotencyKey(), dbErr.getMessage());
+            TransactionAspectSupport.currentTransactionStatus().setRollbackOnly();
             return Outcome.RETRY;
         }
 
@@ -113,11 +119,16 @@ public class ContentEventProcessor {
             log.error("{\"event\":\"fanout_failed\",\"auditId\":\"{}\",\"err\":\"{}\"}",
                     auditId, fanErr.getMessage());
             auditRepo.markFailed(auditId, fanErr.getMessage());
+            TransactionAspectSupport.currentTransactionStatus().setRollbackOnly();
             return Outcome.RETRY;
         }
     }
 
     private void fanOut(ContentEvent event, UUID auditId) {
+        if ("ADMIN_ALERTS".equals(event.topic())) {
+            fanOutAdminAlert(event, auditId);
+            return;
+        }
         List<SubscriptionPreference> prefs = prefRepo.findActiveForTopic(event.topic());
         if (prefs.isEmpty()) {
             log.info("{\"event\":\"no_subscribers\",\"topic\":\"{}\"}", event.topic());
@@ -141,6 +152,23 @@ public class ContentEventProcessor {
         }
         log.info("{\"event\":\"fanout_done\",\"notificationId\":\"{}\",\"web\":{},\"email\":{},\"dupes\":{}}",
                 notificationId, web, em, dupes);
+    }
+
+    private void fanOutAdminAlert(ContentEvent event, UUID auditId) {
+        List<UUID> subscriberIds = adminAlertRepo.findEnabledSubscriberIds();
+        if (subscriberIds.isEmpty()) {
+            log.warn("{\"event\":\"no_admin_alert_subscribers\"}");
+            return;
+        }
+        UUID notificationId = notificationRepo.insert(
+                auditId, event.topic(), event.title(), previewService.preview(event.summary()), null);
+        int inserted = 0;
+        for (UUID subscriberId : subscriberIds) {
+            String key = auditId + ":" + subscriberId + ":ADMIN_EMAIL";
+            if (recipientRepo.insertIfAbsent(notificationId, subscriberId, "EMAIL", key)) inserted++;
+        }
+        log.info("{\"event\":\"admin_alert_fanout_done\",\"notificationId\":\"{}\",\"email\":{}}",
+                notificationId, inserted);
     }
 
     private String toAbsoluteUrl(String url) {

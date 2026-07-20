@@ -34,15 +34,15 @@ public record ContentEventRequest(
 
         @NotBlank
         @Pattern(
-                regexp = "ARTICLE_PUBLISHED|ARTICLE_UPDATED|FEATURE_RELEASED|JOB_POSITION_UPDATED",
-                message = "eventType must be one of: ARTICLE_PUBLISHED, ARTICLE_UPDATED, FEATURE_RELEASED, JOB_POSITION_UPDATED"
+                regexp = "ARTICLE_PUBLISHED|ARTICLE_UPDATED|FEATURE_RELEASED|JOB_POSITION_UPDATED|ANALYTICS_ALERT_TRIGGERED",
+                message = "unsupported eventType"
         )
         String eventType,
 
         @NotBlank
         @Pattern(
-                regexp = "ARTICLE_UPDATES|FEATURE_UPDATES|JOB_UPDATES",
-                message = "topic must be one of: ARTICLE_UPDATES, FEATURE_UPDATES, JOB_UPDATES"
+                regexp = "ARTICLE_UPDATES|FEATURE_UPDATES|JOB_UPDATES|ADMIN_ALERTS",
+                message = "unsupported topic"
         )
         String topic,
 
@@ -79,6 +79,7 @@ public record ContentEventRequest(
         if (eventType.startsWith("ARTICLE")) return "ARTICLE";
         if (eventType.startsWith("FEATURE")) return "FEATURE";
         if (eventType.startsWith("JOB")) return "JOB";
+        if (eventType.startsWith("ANALYTICS_ALERT")) return "ALERT";
         return "UNKNOWN";
     }
 
