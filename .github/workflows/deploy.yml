@@ -1,7 +1,10 @@
 name: Deploy to Cloud Run
 
-# Triggered manually OR on a tag like v1.2.3
 on:
+  workflow_run:
+    workflows: ["CI"]
+    branches: [main]
+    types: [completed]
   workflow_dispatch:
     inputs:
       image_tag:
@@ -10,6 +13,10 @@ on:
   push:
     tags:
       - 'v*'
+
+concurrency:
+  group: deploy-portfolio-notification-service
+  cancel-in-progress: false
 
 permissions:
   contents: read
@@ -24,13 +31,19 @@ env:
   WIF_PROVIDER:      ${{ vars.WIF_PROVIDER }}           # projects/.../providers/github
   DEPLOYER_SA_EMAIL: ${{ vars.DEPLOYER_SA_EMAIL }}      # ci-deployer@PROJECT.iam.gserviceaccount.com
   RUNTIME_SA_EMAIL:  ${{ vars.RUNTIME_SA_EMAIL }}       # notification-runtime@PROJECT.iam.gserviceaccount.com
+  DEPLOY_SHA:        ${{ github.event.workflow_run.head_sha || github.sha }}
 
 jobs:
   build-and-deploy:
+    if: >
+      github.event_name != 'workflow_run' ||
+      github.event.workflow_run.conclusion == 'success'
     name: Build → push → deploy
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.DEPLOY_SHA }}
 
       - name: Set up JDK 21
         uses: actions/setup-java@v4
@@ -52,7 +65,7 @@ jobs:
           elif [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
             echo "tag=${GITHUB_REF#refs/tags/}" >> "$GITHUB_OUTPUT"
           else
-            echo "tag=sha-$(echo $GITHUB_SHA | cut -c1-7)" >> "$GITHUB_OUTPUT"
+            echo "tag=sha-$(echo "$DEPLOY_SHA" | cut -c1-7)" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Authenticate to Google Cloud (WIF)
@@ -97,4 +110,5 @@ jobs:
         run: |
           URL=$(gcloud run services describe "${SERVICE_NAME}" --region="${REGION}" --format='value(status.url)')
           echo "Service URL: $URL"
-          curl --fail --max-time 30 "$URL/api/health/notification" || (echo "Health check failed"; exit 1)
+          curl --fail --max-time 30 --retry 4 --retry-delay 5 \
+            "$URL/api/health/notification"
