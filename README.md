@@ -10,92 +10,15 @@ worker reading from `notification_recipients`.
 
 ---
 
-## Architecture
+## System Design
 
-```mermaid
-flowchart TB
-    %% ================= External =================
-    AdminPub(["☕ portfolio-admin-service"])
-    Portal(["▲ Portfolio Frontend · Vercel"])
-    Subscriber(("👤 Subscriber"))
+The component view separates verified consent, Kafka event ingestion, durable
+recipient fan-out, leased email delivery, OTP dispatch, and bounded retry/DLQ
+recovery.
 
-    %% ================= Kafka =================
-    K_EVENTS@{ shape: das, label: "🟣 Kafka\ncontent.notification.*.v1\nportfolio.content-events" }
-    DLQ@{ shape: das, label: "🟣 Kafka\nportfolio.dlq\npoison-pill isolation" }
+<img src="docs/architecture/notification-platform.svg" alt="Subscription and notification platform architecture" width="100%" />
 
-    %% ================= Notification Service =================
-    subgraph NOTIF_SVC["🔔 NOTIFICATION SERVICE · Cloud Run"]
-        direction TB
-
-        subgraph INGEST["📥 Event Ingestion"]
-            CONSUMER["🎧 ContentEventConsumer\nmanual ack · DLQ on parse fail"]
-            HTTP_FALLBACK["🌐 ContentEventController\nPOST /api/content-events\nHTTP fallback when Kafka down"]
-            PROCESSOR["⚙️ ContentEventProcessor\nidempotencyKey dedup\nfan-out to recipients"]
-        end
-
-        subgraph REST["🌐 REST API"]
-            SUB_CTRL["📬 SubscriptionController\nsubscribe · preferences · unsubscribe"]
-            NOTIF_CTRL["🔔 NotificationController\nfeed · mark-read · admin views"]
-            HEALTH["💚 HealthController\nDB + Kafka composite"]
-        end
-
-        subgraph AUTH["🔐 Auth"]
-            FILTER["InternalAuthFilter\nX-Internal-Token · Bearer JWT\nSWAGGER_ALLOWED_EMAILS"]
-        end
-
-        subgraph DELIVERY["✉️ Email Delivery"]
-            SCHEDULER["⏱️ EmailScheduler\n@Scheduled poll 15s\nclaim batch of READY"]
-            SENDER["📨 JavaMailSender\nHTML + text render\nmax 5 retries · 60→960s backoff"]
-            TRACKER["📈 Delivery Tracker\nREADY → SENT / FAILED / SKIPPED"]
-        end
-    end
-
-    %% ================= Persistence =================
-    PG@{ shape: cyl, label: "🐘 Supabase Postgres\n\nsubscribers · subscription_preferences\nnotifications · notification_recipients\ncontent_event_audit" }
-
-    %% ================= SMTP =================
-    SMTP(("📨 Gmail SMTP Relay"))
-
-    %% ================= Connections: Ingest path =================
-    AdminPub -->|publish content event| K_EVENTS
-    K_EVENTS --> CONSUMER
-    CONSUMER --> PROCESSOR
-    CONSUMER -.->|parse failure| DLQ
-    HTTP_FALLBACK --> PROCESSOR
-    PROCESSOR -->|INSERT notifications + recipients| PG
-
-    %% ================= Connections: REST =================
-    Portal -->|X-Internal-Token| FILTER
-    FILTER --> SUB_CTRL
-    FILTER --> NOTIF_CTRL
-    SUB_CTRL --> PG
-    NOTIF_CTRL --> PG
-
-    %% ================= Connections: Delivery =================
-    PG -->|poll READY recipients| SCHEDULER
-    SCHEDULER --> SENDER
-    SENDER --> SMTP
-    SMTP --> Subscriber
-    SENDER --> TRACKER
-    TRACKER -->|update state| PG
-
-    %% ================= Styles =================
-    classDef service fill:#ffffff,stroke:#334155,stroke-width:1.2px,color:#0f172a
-    classDef database fill:#eff6ff,stroke:#2563eb,stroke-width:1.4px,color:#1e3a8a
-    classDef kafka fill:#faf5ff,stroke:#7c3aed,stroke-width:1.5px,color:#4c1d95
-    classDef external fill:#f9fafb,stroke:#6b7280,stroke-width:1.1px,color:#111827
-
-    class CONSUMER,HTTP_FALLBACK,PROCESSOR,SUB_CTRL,NOTIF_CTRL,HEALTH,FILTER,SCHEDULER,SENDER,TRACKER service
-    class PG database
-    class K_EVENTS,DLQ kafka
-    class AdminPub,Portal,SMTP,Subscriber external
-
-    style NOTIF_SVC fill:#fef2f2,stroke:#ef4444,stroke-width:2px,color:#7f1d1d
-    style INGEST fill:#fefce8,stroke:#ca8a04,stroke-width:1.5px,color:#713f12
-    style REST fill:#ecfdf5,stroke:#059669,stroke-width:1.5px,color:#064e3b
-    style AUTH fill:#fff7ed,stroke:#f97316,stroke-width:1.5px,color:#7c2d12
-    style DELIVERY fill:#eff6ff,stroke:#2563eb,stroke-width:1.5px,color:#1e3a8a
-```
+> **Maintain this diagram:** edit [`docs/architecture/notification-platform.json`](docs/architecture/notification-platform.json), then run `node scripts/render-architecture-diagram.mjs docs/architecture/notification-platform.json`.
 
 **Design properties:**
 
@@ -117,6 +40,32 @@ flowchart TB
    by browsers) or `Authorization: Bearer <token>` (Supabase access token
    or Google ID token; email must be in `SWAGGER_ALLOWED_EMAILS`).
    Swagger UI itself is public.
+
+## Production Operating Model
+
+This service owns the **audience and delivery plane**. It treats publication
+events, subscriber state, and email delivery as three separate concerns so a
+slow SMTP provider never blocks content publishing or admin editing.
+
+Production invariants:
+
+| Concern | Design decision |
+|---|---|
+| Subscriber lifecycle | Subscribers are status-mutated (`ACTIVE`, `UNSUBSCRIBED`, `BOUNCED`) and never hard-deleted by normal user flows |
+| Unsubscribe security | Chat-agent and web unsubscribe flows request a short-lived verification code before status mutation |
+| Fan-out durability | Content events create `notifications` and recipient rows idempotently before any email is attempted |
+| Email retry | Delivery workers claim READY rows, send outside the request path, and retry with bounded exponential backoff |
+| Poison-pill isolation | Malformed Kafka messages go to DLQ instead of blocking the consumer group |
+| Admin visibility | Admin APIs expose subscriber status, notification summaries, recipient states, and failed deliveries without exposing token hashes |
+
+Failure model:
+
+- Kafka down: admin-service outbox can replay the event later, or the HTTP
+  fallback can submit a content event.
+- SMTP down: recipient rows remain retryable; publish and subscriber APIs stay
+  available.
+- Duplicate event: `idempotency_key` and unique constraints collapse the second
+  fan-out.
 
 ---
 

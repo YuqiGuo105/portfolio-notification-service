@@ -1,0 +1,434 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="2420" height="1050" viewBox="0 0 2420 1050" role="img" aria-labelledby="title desc">
+  <title id="title">Subscription &amp; Notification Subsystem</title>
+  <desc id="desc">Production notification workflow covering subscription and OTP, content dispatch, recipient fan-out, durable leases, provider delivery, retry, DLQ, and replay.</desc>
+  <defs>
+    <pattern id="grid-small" width="22" height="22" patternUnits="userSpaceOnUse">
+      <path d="M 22 0 L 0 0 0 22" fill="none" stroke="#d9e0e5" stroke-opacity=".42" stroke-width=".7"/>
+    </pattern>
+    <pattern id="grid" width="110" height="110" patternUnits="userSpaceOnUse">
+      <rect width="110" height="110" fill="url(#grid-small)"/>
+      <path d="M 110 0 L 0 0 0 110" fill="none" stroke="#c4ced5" stroke-opacity=".52" stroke-width="1"/>
+    </pattern>
+    <filter id="node-shadow" x="-12%" y="-12%" width="124%" height="130%">
+      <feDropShadow dx="0" dy="2" stdDeviation="2.2" flood-color="#1f2d38" flood-opacity=".22"/>
+    </filter>
+    <marker id="arrow-primary" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M 0 1 L 9 5 L 0 9 z" fill="#24313c"/></marker><marker id="arrow-sync" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M 0 1 L 9 5 L 0 9 z" fill="#657482"/></marker><marker id="arrow-data" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M 0 1 L 9 5 L 0 9 z" fill="#1778a8"/></marker><marker id="arrow-event" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M 0 1 L 9 5 L 0 9 z" fill="#7356a6"/></marker><marker id="arrow-recovery" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M 0 1 L 9 5 L 0 9 z" fill="#b84b53"/></marker><marker id="arrow-return" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M 0 1 L 9 5 L 0 9 z" fill="#16805e"/></marker>
+  </defs>
+  <style>
+    text { font-family: Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #17212a; }
+    .diagram-title { font-size: 28px; font-weight: 750; }
+    .diagram-subtitle { font-size: 13px; fill: #5f6f7a; }
+    .diagram-summary { font-size: 10px; font-weight: 750; letter-spacing: 1.4px; fill: #5f6f7a; }
+    .lane-title { font-size: 12px; font-weight: 750; letter-spacing: 1.5px; fill: #5f6f7a; }
+    .lane-subtitle { font-size: 10px; fill: #7b8891; }
+    .node-title { font-size: 16px; font-weight: 740; }
+    .node-meta { font-size: 10px; font-weight: 700; letter-spacing: 1px; fill: #5f6f7a; }
+    .node-detail { font-size: 11px; fill: #5f6f7a; }
+    .cluster-member { font-size: 11px; font-weight: 660; fill: #17212a; }
+    .resource-title { font-size: 10px; font-weight: 700; fill: #17212a; }
+    .resource-meta { font-size: 8px; font-weight: 700; letter-spacing: .55px; fill: #5f6f7a; }
+    .queue-title { font-size: 14px; font-weight: 740; fill: #17212a; }
+    .queue-meta { font-size: 9px; font-weight: 700; letter-spacing: .8px; fill: #5f6f7a; }
+    .fabric-title { font-size: 12px; font-weight: 750; letter-spacing: .6px; fill: #17212a; }
+    .fabric-meta { font-size: 9.5px; font-weight: 700; letter-spacing: .8px; fill: #5f6f7a; }
+    .edge-label { font-size: 9.5px; font-weight: 600; fill: #5f6f7a; }
+    .callout-title { font-size: 13px; font-weight: 700; }
+    .legend { font-size: 10px; font-weight: 650; fill: #5f6f7a; }
+  </style>
+  <rect width="2420" height="1050" fill="#ffffff"/>
+  <rect width="2420" height="1050" fill="url(#grid)" opacity=".86"/>
+  <rect x="0" y="0" width="2420" height="92" fill="#ffffff" fill-opacity=".97"/>
+  <line x1="0" y1="92" x2="2420" y2="92" stroke="#cbd4da"/>
+  <circle cx="38" cy="31" r="6" fill="#14805e"/>
+  <text x="56" y="40" class="diagram-title">Subscription &amp; Notification Subsystem</text>
+  <text x="56" y="66" class="diagram-subtitle">Verified consent · idempotent fan-out · durable recipients · leased delivery · bounded recovery</text>
+  <text x="2380" y="28" text-anchor="end" class="diagram-summary">CONSENT PLANE · EVENT FAN-OUT · DELIVERY STATE MACHINE</text>
+  <g transform="translate(2000 45)">
+    <line x1="0" y1="7" x2="30" y2="7" stroke="#24313c" stroke-width="2"/>
+    <text x="38" y="11" class="legend">request</text>
+    <line x1="100" y1="7" x2="130" y2="7" stroke="#7356a6" stroke-width="1.8" stroke-dasharray="7 6"/>
+    <text x="138" y="11" class="legend">Kafka event</text>
+    <line x1="222" y1="7" x2="252" y2="7" stroke="#b84b53" stroke-width="1.7" stroke-dasharray="3 6"/>
+    <text x="260" y="11" class="legend">recovery / DLQ</text>
+  </g>
+  <g>
+    <rect x="140" y="115" width="620" height="600" rx="8"
+      fill="#f3f8fc" fill-opacity="0.04" stroke="#1769aa"
+      stroke-opacity="0.3" stroke-width=".9"
+      />
+    <line x1="156" y1="132" x2="192" y2="132"
+      stroke="#1769aa" stroke-width="2"/>
+    <text x="202" y="137" class="lane-title">01 · CONSENT + PREFERENCES</text>
+    <text x="156" y="160" class="lane-subtitle">subscribe · preference state · verified unsubscribe</text>
+  </g><g>
+    <rect x="780" y="115" width="320" height="600" rx="8"
+      fill="#f8f5fb" fill-opacity="0.04" stroke="#7255a5"
+      stroke-opacity="0.3" stroke-width=".9"
+      />
+    <line x1="796" y1="132" x2="832" y2="132"
+      stroke="#7255a5" stroke-width="2"/>
+    <text x="842" y="137" class="lane-title">02 · EVENT INPUT</text>
+    <text x="796" y="160" class="lane-subtitle">content intent · schema guard · manual ACK</text>
+  </g><g>
+    <rect x="1120" y="115" width="520" height="600" rx="8"
+      fill="#f2faf6" fill-opacity="0.04" stroke="#14805e"
+      stroke-opacity="0.3" stroke-width=".9"
+      />
+    <line x1="1136" y1="132" x2="1172" y2="132"
+      stroke="#14805e" stroke-width="2"/>
+    <text x="1182" y="137" class="lane-title">03 · DURABLE WORKFLOW</text>
+    <text x="1136" y="160" class="lane-subtitle">dedupe · audience resolve · recipient state machine</text>
+  </g><g>
+    <rect x="1660" y="115" width="710" height="600" rx="8"
+      fill="#fff9f0" fill-opacity="0.04" stroke="#b56b13"
+      stroke-opacity="0.3" stroke-width=".9"
+      />
+    <line x1="1676" y1="132" x2="1712" y2="132"
+      stroke="#b56b13" stroke-width="2"/>
+    <text x="1722" y="137" class="lane-title">04 · DELIVERY</text>
+    <text x="1676" y="160" class="lane-subtitle">claim lease · render · send · reconcile</text>
+  </g><g>
+    <rect x="780" y="760" width="1590" height="210" rx="8"
+      fill="#fdf5f5" fill-opacity="0.03" stroke="#ba4a52"
+      stroke-opacity="0.28" stroke-width=".9"
+      />
+    <line x1="796" y1="777" x2="832" y2="777"
+      stroke="#ba4a52" stroke-width="2"/>
+    <text x="842" y="782" class="lane-title">05 · RETRY + POISON ISOLATION</text>
+    <text x="796" y="805" class="lane-subtitle">bounded backoff · DLQ · operator-approved replay</text>
+  </g>
+  <g><path d="M 125 291 C 125 317.88, 180 328.12, 180 355" fill="none" stroke="#24313c" stroke-width="2"
+
+      stroke-linecap="round" stroke-linejoin="round" marker-end="url(#arrow-primary)"/>
+      <g transform="translate(89.69999999999999 313)">
+    <rect width="125.60000000000001" height="20" rx="3" fill="#ffffff" fill-opacity=".96"
+      stroke="#cbd4da" stroke-opacity=".45"/>
+    <text x="62.800000000000004" y="14" text-anchor="middle" class="edge-label">subscribe / verify</text>
+  </g><path d="M 490 355 C 502.6 355, 507.4 350, 520 350" fill="none" stroke="#1778a8" stroke-width="1.7"
+
+      stroke-linecap="round" stroke-linejoin="round" marker-end="url(#arrow-data)"/>
+      <g transform="translate(457.7 342.5)">
+    <rect width="94.60000000000001" height="20" rx="3" fill="#ffffff" fill-opacity=".96"
+      stroke="#cbd4da" stroke-opacity=".45"/>
+    <text x="47.300000000000004" y="14" text-anchor="middle" class="edge-label">consent state</text>
+  </g><path d="M 125 575 C 212.5 574.1666666666666, 544.1666666666666 591.6666666666666, 650 570 C 755.8333333333334 548.3333333333334, 731.6666666666666 475, 760 445 C 788.3333333333334 415, 810 399.1666666666667, 820 390" fill="none" stroke="#7356a6" stroke-width="1.8"
+      stroke-dasharray="7 6"
+      stroke-linecap="round" stroke-linejoin="round" marker-end="url(#arrow-event)"/>
+      <g transform="translate(553.4 560)">
+    <rect width="113.2" height="20" rx="3" fill="#ffffff" fill-opacity=".96"
+      stroke="#cbd4da" stroke-opacity=".45"/>
+    <text x="56.6" y="14" text-anchor="middle" class="edge-label">published intent</text>
+  </g><path d="M 1060 398 C 1102 398, 1118 317.5, 1160 317.5" fill="none" stroke="#7356a6" stroke-width="1.8"
+      stroke-dasharray="7 6"
+      stroke-linecap="round" stroke-linejoin="round" marker-end="url(#arrow-event)"/>
+      <g transform="translate(1041 347.75)">
+    <rect width="138" height="20" rx="3" fill="#ffffff" fill-opacity=".96"
+      stroke="#cbd4da" stroke-opacity=".45"/>
+    <text x="69" y="14" text-anchor="middle" class="edge-label">consume + manual ACK</text>
+  </g><path d="M 730 350 C 735 374.1666666666667, 675 470, 760 495 C 845 520, 1136.6666666666667 502.5, 1240 500 C 1343.3333333333333 497.5, 1356.6666666666667 483.3333333333333, 1380 480" fill="none" stroke="#1778a8" stroke-width="1.7"
+
+      stroke-linecap="round" stroke-linejoin="round" marker-end="url(#arrow-data)"/>
+      <g transform="translate(1020.3 485)">
+    <rect width="119.4" height="20" rx="3" fill="#ffffff" fill-opacity=".96"
+      stroke="#cbd4da" stroke-opacity=".45"/>
+    <text x="59.7" y="14" text-anchor="middle" class="edge-label">eligible audience</text>
+  </g><path d="M 1380 480 C 1385 483.3333333333333, 1410 493.3333333333333, 1410 500 C 1410 506.6666666666667, 1385 516.6666666666666, 1380 520" fill="none" stroke="#1778a8" stroke-width="1.7"
+
+      stroke-linecap="round" stroke-linejoin="round" marker-end="url(#arrow-data)"/>
+      <g transform="translate(1310.5 480)">
+    <rect width="169" height="20" rx="3" fill="#ffffff" fill-opacity=".96"
+      stroke="#cbd4da" stroke-opacity=".45"/>
+    <text x="84.5" y="14" text-anchor="middle" class="edge-label">notification + recipients</text>
+  </g><path d="M 1600 597.5 C 1600 497.75, 1700 459.75, 1700 360" fill="none" stroke="#24313c" stroke-width="2"
+
+      stroke-linecap="round" stroke-linejoin="round" marker-end="url(#arrow-primary)"/>
+      <g transform="translate(1590.3 468.75)">
+    <rect width="119.4" height="20" rx="3" fill="#ffffff" fill-opacity=".96"
+      stroke="#cbd4da" stroke-opacity=".45"/>
+    <text x="59.7" y="14" text-anchor="middle" class="edge-label">claim READY lease</text>
+  </g><path d="M 2030 275 C 2042.6 275, 2047.4 275, 2060 275" fill="none" stroke="#24313c" stroke-width="2"
+
+      stroke-linecap="round" stroke-linejoin="round" marker-end="url(#arrow-primary)"/>
+      <g transform="translate(2016 265)">
+    <rect width="58" height="20" rx="3" fill="#ffffff" fill-opacity=".96"
+      stroke="#cbd4da" stroke-opacity=".45"/>
+    <text x="29" y="14" text-anchor="middle" class="edge-label">send</text>
+  </g><path d="M 2250 275 C 2264.7 275, 2270.3 285, 2285 285" fill="none" stroke="#24313c" stroke-width="2"
+
+      stroke-linecap="round" stroke-linejoin="round" marker-end="url(#arrow-primary)"/>
+      <g transform="translate(2238.5 270)">
+    <rect width="58" height="20" rx="3" fill="#ffffff" fill-opacity=".96"
+      stroke="#cbd4da" stroke-opacity=".45"/>
+    <text x="29" y="14" text-anchor="middle" class="edge-label">deliver</text>
+  </g><path d="M 335 535 C 337.5 540.8333333333334, 350 559.1666666666666, 350 570 C 350 580.8333333333334, 337.5 595, 335 600" fill="none" stroke="#657482" stroke-width="1.65"
+
+      stroke-linecap="round" stroke-linejoin="round" marker-end="url(#arrow-sync)"/>
+      <g transform="translate(295.2 542.5)">
+    <rect width="94.60000000000001" height="20" rx="3" fill="#ffffff" fill-opacity=".96"
+      stroke="#cbd4da" stroke-opacity=".45"/>
+    <text x="47.300000000000004" y="14" text-anchor="middle" class="edge-label">OTP challenge</text>
+  </g><path d="M 490 655 C 498.3333333333333 663.3333333333334, 305 696.6666666666666, 540 705 C 775 713.3333333333334, 1630.8333333333333 739.1666666666666, 1900 705 C 2169.1666666666665 670.8333333333334, 2112.5 555.8333333333334, 2155 500 C 2197.5 444.1666666666667, 2155 391.6666666666667, 2155 370" fill="none" stroke="#24313c" stroke-width="2"
+
+      stroke-linecap="round" stroke-linejoin="round" marker-end="url(#arrow-primary)"/>
+      <g transform="translate(1075.1 695)">
+    <rect width="69.80000000000001" height="20" rx="3" fill="#ffffff" fill-opacity=".96"
+      stroke="#cbd4da" stroke-opacity=".45"/>
+    <text x="34.900000000000006" y="14" text-anchor="middle" class="edge-label">OTP email</text>
+  </g><path d="M 940 426 C 933.3333333333334 458.3333333333333, 899.1666666666666 554.3333333333334, 900 620 C 900.8333333333334 685.6666666666666, 937.5 786.6666666666666, 945 820" fill="none" stroke="#b84b53" stroke-width="1.7"
+      stroke-dasharray="3 6"
+      stroke-linecap="round" stroke-linejoin="round" marker-end="url(#arrow-recovery)"/>
+      <g transform="translate(865.9 710)">
+    <rect width="113.2" height="20" rx="3" fill="#ffffff" fill-opacity=".96"
+      stroke="#cbd4da" stroke-opacity=".45"/>
+    <text x="56.6" y="14" text-anchor="middle" class="edge-label">invalid / poison</text>
+  </g><path d="M 1380 675 C 1380 729.6, 1350 750.4, 1350 805" fill="none" stroke="#b84b53" stroke-width="1.7"
+      stroke-dasharray="3 6"
+      stroke-linecap="round" stroke-linejoin="round" marker-end="url(#arrow-recovery)"/>
+      <g transform="translate(1292.9 730)">
+    <rect width="144.20000000000002" height="20" rx="3" fill="#ffffff" fill-opacity=".96"
+      stroke="#cbd4da" stroke-opacity=".45"/>
+    <text x="72.10000000000001" y="14" text-anchor="middle" class="edge-label">RETRY / expired lease</text>
+  </g><path d="M 1510 865 C 1585.6 865, 1614.4 865, 1690 865" fill="none" stroke="#b84b53" stroke-width="1.7"
+      stroke-dasharray="3 6"
+      stroke-linecap="round" stroke-linejoin="round" marker-end="url(#arrow-recovery)"/>
+      <g transform="translate(1540.3 855)">
+    <rect width="119.4" height="20" rx="3" fill="#ffffff" fill-opacity=".96"
+      stroke="#cbd4da" stroke-opacity=".45"/>
+    <text x="59.7" y="14" text-anchor="middle" class="edge-label">manual escalation</text>
+  </g><path d="M 945 876 C 924.1666666666666 880, 696.6666666666666 896, 820 900 C 943.3333333333334 904, 1511.6666666666667 895.8333333333334, 1685 900 C 1858.3333333333333 904.1666666666666, 1830.8333333333333 920.8333333333334, 1860 925" fill="none" stroke="#b84b53" stroke-width="1.7"
+      stroke-dasharray="3 6"
+      stroke-linecap="round" stroke-linejoin="round" marker-end="url(#arrow-recovery)"/>
+      <g transform="translate(1195.8 890)">
+    <rect width="88.4" height="20" rx="3" fill="#ffffff" fill-opacity=".96"
+      stroke="#cbd4da" stroke-opacity=".45"/>
+    <text x="44.2" y="14" text-anchor="middle" class="edge-label">poison event</text>
+  </g><path d="M 1865 510 C 1870.8333333333333 514.1666666666666, 1900 527.5, 1900 535 C 1900 542.5, 1870.8333333333333 551.6666666666666, 1865 555" fill="none" stroke="#1778a8" stroke-width="1.7"
+
+      stroke-linecap="round" stroke-linejoin="round" marker-end="url(#arrow-data)"/>
+      <g transform="translate(1835.2 512.5)">
+    <rect width="94.60000000000001" height="20" rx="3" fill="#ffffff" fill-opacity=".96"
+      stroke="#cbd4da" stroke-opacity=".45"/>
+    <text x="47.300000000000004" y="14" text-anchor="middle" class="edge-label">SENT / FAILED</text>
+  </g></g>
+  <g><g>
+    <g transform="translate(46.5 237) scale(2.1666666666666665)" fill="none" stroke="#087f95" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="7" r="4"/><path d="M4.5 21c.8-5 3.3-7 7.5-7s6.7 2 7.5 7"/></g>
+    <text x="72.5" y="311" text-anchor="middle" class="node-title">Subscriber</text>
+    <text x="72.5" y="331" text-anchor="middle" class="node-meta">WEB / EMAIL</text>
+  </g><g>
+    <g transform="translate(46.5 522) scale(2.1666666666666665)" fill="none" stroke="#b56b13" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3h8l4 4v14H6z"/><path d="M14 3v5h5M9 13h6M9 17h6"/></g>
+    <text x="72.5" y="596" text-anchor="middle" class="node-title">Content Platform</text>
+    <text x="72.5" y="616" text-anchor="middle" class="node-meta">PUBLISHER</text>
+  </g><g>
+    <rect x="180" y="175" width="310" height="360" rx="9" fill="#f3f8fc"
+      fill-opacity=".9" stroke="#1769aa" stroke-opacity=".72" stroke-width="1.25"
+      filter="url(#node-shadow)"/>
+    <rect x="180" y="175" width="6" height="360" rx="3" fill="#1769aa"/>
+    <g transform="translate(200 191) scale(1.5833333333333333)"><path fill="#6db33f" d="m23.693 10.7058-4.73-8.1844c-.4094-.7106-1.4166-1.2942-2.2402-1.2942H7.2725c-.819 0-1.8308.5836-2.2402 1.2942L.307 10.7058c-.4095.7106-.4095 1.873 0 2.5837l4.7252 8.189c.4094.7107 1.4166 1.2943 2.2402 1.2943h9.455c.819 0 1.826-.5836 2.2402-1.2942l4.7252-8.189c.4095-.7107.4095-1.8732 0-2.5838zM10.9763 5.7547c0-.5365.4377-.9742.9742-.9742s.9742.4377.9742.9742v5.8217c0 .5366-.4377.9742-.9742.9742s-.9742-.4376-.9742-.9742zm.9742 12.4294c-3.6427 0-6.6077-2.965-6.6077-6.6077.0047-2.0896.993-4.0521 2.6685-5.304a.8657.8657 0 0 1 1.2142.1788.8657.8657 0 0 1-.1788 1.2143c-2.1602 1.6048-2.612 4.6592-1.0072 6.8194 1.6049 2.1603 4.6593 2.612 6.8195 1.0072 1.2378-.9177 1.9673-2.372 1.9673-3.9157a4.8972 4.8972 0 0 0-1.9861-3.925c-.386-.2824-.466-.8284-.1836-1.2143.2824-.386.8283-.466 1.2143-.1835 1.6895 1.2471 2.6826 3.2238 2.6873 5.3228 0 3.6474-2.965 6.6077-6.6077 6.6077z"/></g>
+    <text x="252" y="206" class="node-title">Subscription API</text>
+    <text x="252" y="227" class="node-meta">CLOUD RUN · HTTP</text>
+    <line x1="200" y1="238" x2="470" y2="238"
+      stroke="#1769aa" stroke-opacity=".24"/>
+    <g>
+        <rect x="202" y="247" width="128" height="32" rx="5"
+          fill="#ffffff" fill-opacity=".96" stroke="#1769aa" stroke-opacity=".35"/>
+        <circle cx="216" cy="263" r="3.5" fill="#1769aa"/>
+        <text x="228" y="269" class="cluster-member">Subscribe</text>
+      </g><g>
+        <rect x="340" y="247" width="128" height="32" rx="5"
+          fill="#ffffff" fill-opacity=".96" stroke="#1769aa" stroke-opacity=".35"/>
+        <circle cx="354" cy="263" r="3.5" fill="#1769aa"/>
+        <text x="366" y="269" class="cluster-member">Preferences</text>
+      </g><g>
+        <rect x="202" y="288" width="128" height="32" rx="5"
+          fill="#ffffff" fill-opacity=".96" stroke="#1769aa" stroke-opacity=".35"/>
+        <circle cx="216" cy="304" r="3.5" fill="#1769aa"/>
+        <text x="228" y="310" class="cluster-member">OTP Issue</text>
+      </g><g>
+        <rect x="340" y="288" width="128" height="32" rx="5"
+          fill="#ffffff" fill-opacity=".96" stroke="#1769aa" stroke-opacity=".35"/>
+        <circle cx="354" cy="304" r="3.5" fill="#1769aa"/>
+        <text x="366" y="310" class="cluster-member">OTP Confirm</text>
+      </g><g>
+        <rect x="202" y="329" width="128" height="32" rx="5"
+          fill="#ffffff" fill-opacity=".96" stroke="#1769aa" stroke-opacity=".35"/>
+        <circle cx="216" cy="345" r="3.5" fill="#1769aa"/>
+        <text x="228" y="351" class="cluster-member">Status Transition</text>
+      </g><g>
+        <rect x="340" y="329" width="128" height="32" rx="5"
+          fill="#ffffff" fill-opacity=".96" stroke="#1769aa" stroke-opacity=".35"/>
+        <circle cx="354" cy="345" r="3.5" fill="#1769aa"/>
+        <text x="366" y="351" class="cluster-member">Audit</text>
+      </g>
+    <g>
+      <rect x="202" y="473" width="266" height="48" rx="5"
+        fill="#fdf5f5" fill-opacity=".78" stroke="#ba4a52" stroke-opacity=".5"/>
+      <g transform="translate(212 485) scale(1)"><path fill="#d82c20" d="M22.71 13.145c-1.66 2.092-3.452 4.483-7.038 4.483-3.203 0-4.397-2.825-4.48-5.12.701 1.484 2.073 2.685 4.214 2.63 4.117-.133 6.94-3.852 6.94-7.239 0-4.05-3.022-6.972-8.268-6.972-3.752 0-8.4 1.428-11.455 3.685C2.59 6.937 3.885 9.958 4.35 9.626c2.648-1.904 4.748-3.13 6.784-3.744C8.12 9.244.886 17.05 0 18.425c.1 1.261 1.66 4.648 2.424 4.648.232 0 .431-.133.664-.365a100.49 100.49 0 0 0 5.54-6.765c.222 3.104 1.748 6.898 6.014 6.898 3.819 0 7.604-2.756 9.33-8.965.2-.764-.73-1.361-1.261-.73zm-4.349-5.013c0 1.959-1.926 2.922-3.685 2.922-.941 0-1.664-.247-2.235-.568 1.051-1.592 2.092-3.225 3.21-4.973 1.972.334 2.71 1.43 2.71 2.619z"/></g>
+      <text x="244" y="492" class="resource-title">OTP Challenges</text>
+      <text x="244" y="509" class="resource-meta">VALKEY · TTL · ATTEMPTS</text>
+    </g>
+  </g><g>
+    <path d="M 520 249 C 520 233, 730 233, 730 249
+      L 730 451 C 730 467, 520 467, 520 451 Z"
+      fill="#ffffff" stroke="#596873" stroke-width="1.2" filter="url(#node-shadow)"/>
+    <ellipse cx="625" cy="249" rx="105" ry="14" fill="#f3f8fc" stroke="#596873" stroke-width="1.2"/>
+    <g transform="translate(540 267) scale(1.5833333333333333)"><path fill="#336791" d="M23.5594 14.7228a.5269.5269 0 0 0-.0563-.1191c-.139-.2632-.4768-.3418-1.0074-.2321-1.6533.3411-2.2935.1312-2.5256-.0191 1.342-2.0482 2.445-4.522 3.0411-6.8297.2714-1.0507.7982-3.5237.1222-4.7316a1.5641 1.5641 0 0 0-.1509-.235C21.6931.9086 19.8007.0248 17.5099.0005c-1.4947-.0158-2.7705.3461-3.1161.4794a9.449 9.449 0 0 0-.5159-.0816 8.044 8.044 0 0 0-1.3114-.1278c-1.1822-.0184-2.2038.2642-3.0498.8406-.8573-.3211-4.7888-1.645-7.2219.0788C.9359 2.1526.3086 3.8733.4302 6.3043c.0409.818.5069 3.334 1.2423 5.7436.4598 1.5065.9387 2.7019 1.4334 3.582.553.9942 1.1259 1.5933 1.7143 1.7895.4474.1491 1.1327.1441 1.8581-.7279.8012-.9635 1.5903-1.8258 1.9446-2.2069.4351.2355.9064.3625 1.39.3772a.0569.0569 0 0 0 .0004.0041 11.0312 11.0312 0 0 0-.2472.3054c-.3389.4302-.4094.5197-1.5002.7443-.3102.064-1.1344.2339-1.1464.8115-.0025.1224.0329.2309.0919.3268.2269.4231.9216.6097 1.015.6331 1.3345.3335 2.5044.092 3.3714-.6787-.017 2.231.0775 4.4174.3454 5.0874.2212.5529.7618 1.9045 2.4692 1.9043.2505 0 .5263-.0291.8296-.0941 1.7819-.3821 2.5557-1.1696 2.855-2.9059.1503-.8707.4016-2.8753.5388-4.1012.0169-.0703.0357-.1207.057-.1362.0007-.0005.0697-.0471.4272.0307a.3673.3673 0 0 0 .0443.0068l.2539.0223.0149.001c.8468.0384 1.9114-.1426 2.5312-.4308.6438-.2988 1.8057-1.0323 1.5951-1.6698zM2.371 11.8765c-.7435-2.4358-1.1779-4.8851-1.2123-5.5719-.1086-2.1714.4171-3.6829 1.5623-4.4927 1.8367-1.2986 4.8398-.5408 6.108-.13-.0032.0032-.0066.0061-.0098.0094-2.0238 2.044-1.9758 5.536-1.9708 5.7495-.0002.0823.0066.1989.0162.3593.0348.5873.0996 1.6804-.0735 2.9184-.1609 1.1504.1937 2.2764.9728 3.0892.0806.0841.1648.1631.2518.2374-.3468.3714-1.1004 1.1926-1.9025 2.1576-.5677.6825-.9597.5517-1.0886.5087-.3919-.1307-.813-.5871-1.2381-1.3223-.4796-.839-.9635-2.0317-1.4155-3.5126zm6.0072 5.0871c-.1711-.0428-.3271-.1132-.4322-.1772.0889-.0394.2374-.0902.4833-.1409 1.2833-.2641 1.4815-.4506 1.9143-1.0002.0992-.126.2116-.2687.3673-.4426a.3549.3549 0 0 0 .0737-.1298c.1708-.1513.2724-.1099.4369-.0417.156.0646.3078.26.3695.4752.0291.1016.0619.2945-.0452.4444-.9043 1.2658-2.2216 1.2494-3.1676 1.0128zm2.094-3.988-.0525.141c-.133.3566-.2567.6881-.3334 1.003-.6674-.0021-1.3168-.2872-1.8105-.8024-.6279-.6551-.9131-1.5664-.7825-2.5004.1828-1.3079.1153-2.4468.079-3.0586-.005-.0857-.0095-.1607-.0122-.2199.2957-.2621 1.6659-.9962 2.6429-.7724.4459.1022.7176.4057.8305.928.5846 2.7038.0774 3.8307-.3302 4.7363-.084.1866-.1633.3629-.2311.5454zm7.3637 4.5725c-.0169.1768-.0358.376-.0618.5959l-.146.4383a.3547.3547 0 0 0-.0182.1077c-.0059.4747-.054.6489-.115.8693-.0634.2292-.1353.4891-.1794 1.0575-.11 1.4143-.8782 2.2267-2.4172 2.5565-1.5155.3251-1.7843-.4968-2.0212-1.2217a6.5824 6.5824 0 0 0-.0769-.2266c-.2154-.5858-.1911-1.4119-.1574-2.5551.0165-.5612-.0249-1.9013-.3302-2.6462.0044-.2932.0106-.5909.019-.8918a.3529.3529 0 0 0-.0153-.1126 1.4927 1.4927 0 0 0-.0439-.208c-.1226-.4283-.4213-.7866-.7797-.9351-.1424-.059-.4038-.1672-.7178-.0869.067-.276.1831-.5875.309-.9249l.0529-.142c.0595-.16.134-.3257.213-.5012.4265-.9476 1.0106-2.2453.3766-5.1772-.2374-1.0981-1.0304-1.6343-2.2324-1.5098-.7207.0746-1.3799.3654-1.7088.5321a5.6716 5.6716 0 0 0-.1958.1041c.0918-1.1064.4386-3.1741 1.7357-4.4823a4.0306 4.0306 0 0 1 .3033-.276.3532.3532 0 0 0 .1447-.0644c.7524-.5706 1.6945-.8506 2.802-.8325.4091.0067.8017.0339 1.1742.081 1.939.3544 3.2439 1.4468 4.0359 2.3827.8143.9623 1.2552 1.9315 1.4312 2.4543-1.3232-.1346-2.2234.1268-2.6797.779-.9926 1.4189.543 4.1729 1.2811 5.4964.1353.2426.2522.4522.2889.5413.2403.5825.5515.9713.7787 1.2552.0696.087.1372.1714.1885.245-.4008.1155-1.1208.3825-1.0552 1.717-.0123.1563-.0423.4469-.0834.8148-.0461.2077-.0702.4603-.0994.7662zm.8905-1.6211c-.0405-.8316.2691-.9185.5967-1.0105a2.8566 2.8566 0 0 0 .135-.0406 1.202 1.202 0 0 0 .1342.103c.5703.3765 1.5823.4213 3.0068.1344-.2016.1769-.5189.3994-.9533.6011-.4098.1903-1.0957.333-1.7473.3636-.7197.0336-1.0859-.0807-1.1721-.151zm.5695-9.2712c-.0059.3508-.0542.6692-.1054 1.0017-.055.3576-.112.7274-.1264 1.1762-.0142.4368.0404.8909.0932 1.3301.1066.887.216 1.8003-.2075 2.7014a3.5272 3.5272 0 0 1-.1876-.3856c-.0527-.1276-.1669-.3326-.3251-.6162-.6156-1.1041-2.0574-3.6896-1.3193-4.7446.3795-.5427 1.3408-.5661 2.1781-.463zm.2284 7.0137a12.3762 12.3762 0 0 0-.0853-.1074l-.0355-.0444c.7262-1.1995.5842-2.3862.4578-3.4385-.0519-.4318-.1009-.8396-.0885-1.2226.0129-.4061.0666-.7543.1185-1.0911.0639-.415.1288-.8443.1109-1.3505.0134-.0531.0188-.1158.0118-.1902-.0457-.4855-.5999-1.938-1.7294-3.253-.6076-.7073-1.4896-1.4972-2.6889-2.0395.5251-.1066 1.2328-.2035 2.0244-.1859 2.0515.0456 3.6746.8135 4.8242 2.2824a.908.908 0 0 1 .0667.1002c.7231 1.3556-.2762 6.2751-2.9867 10.5405zm-8.8166-6.1162c-.025.1794-.3089.4225-.6211.4225a.5821.5821 0 0 1-.0809-.0056c-.1873-.026-.3765-.144-.5059-.3156-.0458-.0605-.1203-.178-.1055-.2844.0055-.0401.0261-.0985.0925-.1488.1182-.0894.3518-.1226.6096-.0867.3163.0441.6426.1938.6113.4186zm7.9305-.4114c.0111.0792-.049.201-.1531.3102-.0683.0717-.212.1961-.4079.2232a.5456.5456 0 0 1-.075.0052c-.2935 0-.5414-.2344-.5607-.3717-.024-.1765.2641-.3106.5611-.352.297-.0414.6111.0088.6356.1851z"/></g>
+    <text x="590" y="282" class="node-title">Subscriber Ledger</text>
+    <text x="590" y="303" class="node-meta">CONSENT · PREFERENCES</text>
+    <text x="542" y="331" class="node-detail">active / unsubscribed</text><text x="542" y="350" class="node-detail">no hard delete</text>
+  </g><g>
+    <rect x="820" y="370" width="240" height="56" rx="28" fill="#ffffff"
+      stroke="#596873" stroke-width="1.3" filter="url(#node-shadow)"/>
+    <path d="M 1032 374
+      C 1012.96 374, 1012.96 422, 1032 422"
+      fill="none" stroke="#5f6f7a" stroke-width="1.15"/>
+    <g transform="translate(840 382) scale(1.3333333333333333)"><path fill="#231f20" d="M9.71 2.136a1.43 1.43 0 0 0-2.047 0h-.007a1.48 1.48 0 0 0-.421 1.042c0 .41.161.777.422 1.039l.007.007c.257.264.616.426 1.019.426.404 0 .766-.162 1.027-.426l.003-.007c.261-.262.421-.629.421-1.039 0-.408-.159-.777-.421-1.042H9.71zM8.683 22.295c.404 0 .766-.167 1.027-.429l.003-.008c.261-.261.421-.631.421-1.036 0-.41-.159-.778-.421-1.044H9.71a1.42 1.42 0 0 0-1.027-.432 1.4 1.4 0 0 0-1.02.432h-.007c-.26.266-.422.634-.422 1.044 0 .406.161.775.422 1.036l.007.008c.258.262.617.429 1.02.429zm7.89-4.462c.359-.096.683-.33.882-.684l.027-.052a1.47 1.47 0 0 0 .114-1.067 1.454 1.454 0 0 0-.675-.896l-.021-.014a1.425 1.425 0 0 0-1.078-.132c-.36.091-.684.335-.881.686-.2.349-.241.75-.146 1.119.099.363.33.691.675.896h.002c.346.203.737.239 1.101.144zm-6.405-7.342a2.083 2.083 0 0 0-1.485-.627c-.58 0-1.103.242-1.482.627-.378.385-.612.916-.612 1.507s.233 1.124.612 1.514a2.08 2.08 0 0 0 2.967 0c.379-.39.612-.923.612-1.514s-.233-1.122-.612-1.507zm-.835-2.51c.843.141 1.6.552 2.178 1.144h.004c.092.093.182.196.265.299l1.446-.851a3.176 3.176 0 0 1-.047-1.808 3.149 3.149 0 0 1 1.456-1.926l.025-.016a3.062 3.062 0 0 1 2.345-.306c.77.21 1.465.721 1.898 1.482v.002c.431.757.518 1.626.313 2.408a3.145 3.145 0 0 1-1.456 1.928l-.198.118h-.02a3.095 3.095 0 0 1-2.154.201 3.127 3.127 0 0 1-1.514-.944l-1.444.848a4.162 4.162 0 0 1 0 2.879l1.444.846c.413-.47.939-.789 1.514-.944a3.041 3.041 0 0 1 2.371.319l.048.023v.002a3.17 3.17 0 0 1 1.408 1.906 3.215 3.215 0 0 1-.313 2.405l-.026.053-.003-.005a3.147 3.147 0 0 1-1.867 1.436 3.096 3.096 0 0 1-2.371-.318v-.006a3.156 3.156 0 0 1-1.456-1.927 3.175 3.175 0 0 1 .047-1.805l-1.446-.848a3.905 3.905 0 0 1-.265.294l-.004.005a3.938 3.938 0 0 1-2.178 1.138v1.699a3.09 3.09 0 0 1 1.56.862l.002.004c.565.572.914 1.368.914 2.243 0 .873-.35 1.664-.914 2.239l-.002.009a3.1 3.1 0 0 1-2.21.931 3.1 3.1 0 0 1-2.206-.93h-.002v-.009a3.186 3.186 0 0 1-.916-2.239c0-.875.35-1.672.916-2.243v-.004h.002a3.1 3.1 0 0 1 1.558-.862v-1.699a3.926 3.926 0 0 1-2.176-1.138l-.006-.005a4.098 4.098 0 0 1-1.173-2.874c0-1.122.452-2.136 1.173-2.872h.006a3.947 3.947 0 0 1 2.176-1.144V6.289a3.137 3.137 0 0 1-1.558-.864h-.002v-.004a3.192 3.192 0 0 1-.916-2.243c0-.871.35-1.669.916-2.243l.002-.002A3.084 3.084 0 0 1 8.683 0c.861 0 1.641.355 2.21.932v.002h.002c.565.574.914 1.372.914 2.243 0 .876-.35 1.667-.914 2.243l-.002.005a3.142 3.142 0 0 1-1.56.864v1.692zm8.121-1.129l-.012-.019a1.452 1.452 0 0 0-.87-.668 1.43 1.43 0 0 0-1.103.146h.002c-.347.2-.58.529-.677.896-.095.365-.054.768.146 1.119l.007.009c.2.347.519.579.874.673.357.103.755.059 1.098-.144l.019-.009a1.47 1.47 0 0 0 .657-.885 1.493 1.493 0 0 0-.141-1.118"/></g>
+    <text x="886" y="403" class="queue-title"
+      style="font-size:12.07px">Notification Dispatch</text>
+    <text x="940" y="444" text-anchor="middle" class="queue-meta">CONTENT.NOTIFICATION.*.V1</text>
+  </g><g>
+    <rect x="1160" y="155" width="440" height="325" rx="9" fill="#f2faf6"
+      fill-opacity=".9" stroke="#14805e" stroke-opacity=".72" stroke-width="1.25"
+      filter="url(#node-shadow)"/>
+    <rect x="1160" y="155" width="6" height="325" rx="3" fill="#14805e"/>
+    <g transform="translate(1180 171) scale(1.5833333333333333)"><path fill="#6db33f" d="m23.693 10.7058-4.73-8.1844c-.4094-.7106-1.4166-1.2942-2.2402-1.2942H7.2725c-.819 0-1.8308.5836-2.2402 1.2942L.307 10.7058c-.4095.7106-.4095 1.873 0 2.5837l4.7252 8.189c.4094.7107 1.4166 1.2943 2.2402 1.2943h9.455c.819 0 1.826-.5836 2.2402-1.2942l4.7252-8.189c.4095-.7107.4095-1.8732 0-2.5838zM10.9763 5.7547c0-.5365.4377-.9742.9742-.9742s.9742.4377.9742.9742v5.8217c0 .5366-.4377.9742-.9742.9742s-.9742-.4376-.9742-.9742zm.9742 12.4294c-3.6427 0-6.6077-2.965-6.6077-6.6077.0047-2.0896.993-4.0521 2.6685-5.304a.8657.8657 0 0 1 1.2142.1788.8657.8657 0 0 1-.1788 1.2143c-2.1602 1.6048-2.612 4.6592-1.0072 6.8194 1.6049 2.1603 4.6593 2.612 6.8195 1.0072 1.2378-.9177 1.9673-2.372 1.9673-3.9157a4.8972 4.8972 0 0 0-1.9861-3.925c-.386-.2824-.466-.8284-.1836-1.2143.2824-.386.8283-.466 1.2143-.1835 1.6895 1.2471 2.6826 3.2238 2.6873 5.3228 0 3.6474-2.965 6.6077-6.6077 6.6077z"/></g>
+    <text x="1232" y="186" class="node-title">Notification Orchestrator</text>
+    <text x="1232" y="207" class="node-meta">KAFKA CONSUMER · MANUAL ACK</text>
+    <line x1="1180" y1="218" x2="1580" y2="218"
+      stroke="#14805e" stroke-opacity=".24"/>
+    <g>
+        <rect x="1182" y="227" width="193" height="32" rx="5"
+          fill="#ffffff" fill-opacity=".96" stroke="#14805e" stroke-opacity=".35"/>
+        <circle cx="1196" cy="243" r="3.5" fill="#14805e"/>
+        <text x="1208" y="249" class="cluster-member">Schema Validation</text>
+      </g><g>
+        <rect x="1385" y="227" width="193" height="32" rx="5"
+          fill="#ffffff" fill-opacity=".96" stroke="#14805e" stroke-opacity=".35"/>
+        <circle cx="1399" cy="243" r="3.5" fill="#14805e"/>
+        <text x="1411" y="249" class="cluster-member">Event Dedup</text>
+      </g><g>
+        <rect x="1182" y="268" width="193" height="32" rx="5"
+          fill="#ffffff" fill-opacity=".96" stroke="#14805e" stroke-opacity=".35"/>
+        <circle cx="1196" cy="284" r="3.5" fill="#14805e"/>
+        <text x="1208" y="290" class="cluster-member">Audience Resolve</text>
+      </g><g>
+        <rect x="1385" y="268" width="193" height="32" rx="5"
+          fill="#ffffff" fill-opacity=".96" stroke="#14805e" stroke-opacity=".35"/>
+        <circle cx="1399" cy="284" r="3.5" fill="#14805e"/>
+        <text x="1411" y="290" class="cluster-member">Recipient Fan-out</text>
+      </g><g>
+        <rect x="1182" y="309" width="193" height="32" rx="5"
+          fill="#ffffff" fill-opacity=".96" stroke="#14805e" stroke-opacity=".35"/>
+        <circle cx="1196" cy="325" r="3.5" fill="#14805e"/>
+        <text x="1208" y="331" class="cluster-member">Channel Policy</text>
+      </g><g>
+        <rect x="1385" y="309" width="193" height="32" rx="5"
+          fill="#ffffff" fill-opacity=".96" stroke="#14805e" stroke-opacity=".35"/>
+        <circle cx="1399" cy="325" r="3.5" fill="#14805e"/>
+        <text x="1411" y="331" class="cluster-member">Audit State</text>
+      </g>
+
+  </g><g>
+    <path d="M 1160 534 C 1160 518, 1600 518, 1600 534
+      L 1600 661 C 1600 677, 1160 677, 1160 661 Z"
+      fill="#ffffff" stroke="#596873" stroke-width="1.2" filter="url(#node-shadow)"/>
+    <ellipse cx="1380" cy="534" rx="220" ry="14" fill="#f8f5fb" stroke="#596873" stroke-width="1.2"/>
+    <g transform="translate(1180 552) scale(1.5833333333333333)"><path fill="#336791" d="M23.5594 14.7228a.5269.5269 0 0 0-.0563-.1191c-.139-.2632-.4768-.3418-1.0074-.2321-1.6533.3411-2.2935.1312-2.5256-.0191 1.342-2.0482 2.445-4.522 3.0411-6.8297.2714-1.0507.7982-3.5237.1222-4.7316a1.5641 1.5641 0 0 0-.1509-.235C21.6931.9086 19.8007.0248 17.5099.0005c-1.4947-.0158-2.7705.3461-3.1161.4794a9.449 9.449 0 0 0-.5159-.0816 8.044 8.044 0 0 0-1.3114-.1278c-1.1822-.0184-2.2038.2642-3.0498.8406-.8573-.3211-4.7888-1.645-7.2219.0788C.9359 2.1526.3086 3.8733.4302 6.3043c.0409.818.5069 3.334 1.2423 5.7436.4598 1.5065.9387 2.7019 1.4334 3.582.553.9942 1.1259 1.5933 1.7143 1.7895.4474.1491 1.1327.1441 1.8581-.7279.8012-.9635 1.5903-1.8258 1.9446-2.2069.4351.2355.9064.3625 1.39.3772a.0569.0569 0 0 0 .0004.0041 11.0312 11.0312 0 0 0-.2472.3054c-.3389.4302-.4094.5197-1.5002.7443-.3102.064-1.1344.2339-1.1464.8115-.0025.1224.0329.2309.0919.3268.2269.4231.9216.6097 1.015.6331 1.3345.3335 2.5044.092 3.3714-.6787-.017 2.231.0775 4.4174.3454 5.0874.2212.5529.7618 1.9045 2.4692 1.9043.2505 0 .5263-.0291.8296-.0941 1.7819-.3821 2.5557-1.1696 2.855-2.9059.1503-.8707.4016-2.8753.5388-4.1012.0169-.0703.0357-.1207.057-.1362.0007-.0005.0697-.0471.4272.0307a.3673.3673 0 0 0 .0443.0068l.2539.0223.0149.001c.8468.0384 1.9114-.1426 2.5312-.4308.6438-.2988 1.8057-1.0323 1.5951-1.6698zM2.371 11.8765c-.7435-2.4358-1.1779-4.8851-1.2123-5.5719-.1086-2.1714.4171-3.6829 1.5623-4.4927 1.8367-1.2986 4.8398-.5408 6.108-.13-.0032.0032-.0066.0061-.0098.0094-2.0238 2.044-1.9758 5.536-1.9708 5.7495-.0002.0823.0066.1989.0162.3593.0348.5873.0996 1.6804-.0735 2.9184-.1609 1.1504.1937 2.2764.9728 3.0892.0806.0841.1648.1631.2518.2374-.3468.3714-1.1004 1.1926-1.9025 2.1576-.5677.6825-.9597.5517-1.0886.5087-.3919-.1307-.813-.5871-1.2381-1.3223-.4796-.839-.9635-2.0317-1.4155-3.5126zm6.0072 5.0871c-.1711-.0428-.3271-.1132-.4322-.1772.0889-.0394.2374-.0902.4833-.1409 1.2833-.2641 1.4815-.4506 1.9143-1.0002.0992-.126.2116-.2687.3673-.4426a.3549.3549 0 0 0 .0737-.1298c.1708-.1513.2724-.1099.4369-.0417.156.0646.3078.26.3695.4752.0291.1016.0619.2945-.0452.4444-.9043 1.2658-2.2216 1.2494-3.1676 1.0128zm2.094-3.988-.0525.141c-.133.3566-.2567.6881-.3334 1.003-.6674-.0021-1.3168-.2872-1.8105-.8024-.6279-.6551-.9131-1.5664-.7825-2.5004.1828-1.3079.1153-2.4468.079-3.0586-.005-.0857-.0095-.1607-.0122-.2199.2957-.2621 1.6659-.9962 2.6429-.7724.4459.1022.7176.4057.8305.928.5846 2.7038.0774 3.8307-.3302 4.7363-.084.1866-.1633.3629-.2311.5454zm7.3637 4.5725c-.0169.1768-.0358.376-.0618.5959l-.146.4383a.3547.3547 0 0 0-.0182.1077c-.0059.4747-.054.6489-.115.8693-.0634.2292-.1353.4891-.1794 1.0575-.11 1.4143-.8782 2.2267-2.4172 2.5565-1.5155.3251-1.7843-.4968-2.0212-1.2217a6.5824 6.5824 0 0 0-.0769-.2266c-.2154-.5858-.1911-1.4119-.1574-2.5551.0165-.5612-.0249-1.9013-.3302-2.6462.0044-.2932.0106-.5909.019-.8918a.3529.3529 0 0 0-.0153-.1126 1.4927 1.4927 0 0 0-.0439-.208c-.1226-.4283-.4213-.7866-.7797-.9351-.1424-.059-.4038-.1672-.7178-.0869.067-.276.1831-.5875.309-.9249l.0529-.142c.0595-.16.134-.3257.213-.5012.4265-.9476 1.0106-2.2453.3766-5.1772-.2374-1.0981-1.0304-1.6343-2.2324-1.5098-.7207.0746-1.3799.3654-1.7088.5321a5.6716 5.6716 0 0 0-.1958.1041c.0918-1.1064.4386-3.1741 1.7357-4.4823a4.0306 4.0306 0 0 1 .3033-.276.3532.3532 0 0 0 .1447-.0644c.7524-.5706 1.6945-.8506 2.802-.8325.4091.0067.8017.0339 1.1742.081 1.939.3544 3.2439 1.4468 4.0359 2.3827.8143.9623 1.2552 1.9315 1.4312 2.4543-1.3232-.1346-2.2234.1268-2.6797.779-.9926 1.4189.543 4.1729 1.2811 5.4964.1353.2426.2522.4522.2889.5413.2403.5825.5515.9713.7787 1.2552.0696.087.1372.1714.1885.245-.4008.1155-1.1208.3825-1.0552 1.717-.0123.1563-.0423.4469-.0834.8148-.0461.2077-.0702.4603-.0994.7662zm.8905-1.6211c-.0405-.8316.2691-.9185.5967-1.0105a2.8566 2.8566 0 0 0 .135-.0406 1.202 1.202 0 0 0 .1342.103c.5703.3765 1.5823.4213 3.0068.1344-.2016.1769-.5189.3994-.9533.6011-.4098.1903-1.0957.333-1.7473.3636-.7197.0336-1.0859-.0807-1.1721-.151zm.5695-9.2712c-.0059.3508-.0542.6692-.1054 1.0017-.055.3576-.112.7274-.1264 1.1762-.0142.4368.0404.8909.0932 1.3301.1066.887.216 1.8003-.2075 2.7014a3.5272 3.5272 0 0 1-.1876-.3856c-.0527-.1276-.1669-.3326-.3251-.6162-.6156-1.1041-2.0574-3.6896-1.3193-4.7446.3795-.5427 1.3408-.5661 2.1781-.463zm.2284 7.0137a12.3762 12.3762 0 0 0-.0853-.1074l-.0355-.0444c.7262-1.1995.5842-2.3862.4578-3.4385-.0519-.4318-.1009-.8396-.0885-1.2226.0129-.4061.0666-.7543.1185-1.0911.0639-.415.1288-.8443.1109-1.3505.0134-.0531.0188-.1158.0118-.1902-.0457-.4855-.5999-1.938-1.7294-3.253-.6076-.7073-1.4896-1.4972-2.6889-2.0395.5251-.1066 1.2328-.2035 2.0244-.1859 2.0515.0456 3.6746.8135 4.8242 2.2824a.908.908 0 0 1 .0667.1002c.7231 1.3556-.2762 6.2751-2.9867 10.5405zm-8.8166-6.1162c-.025.1794-.3089.4225-.6211.4225a.5821.5821 0 0 1-.0809-.0056c-.1873-.026-.3765-.144-.5059-.3156-.0458-.0605-.1203-.178-.1055-.2844.0055-.0401.0261-.0985.0925-.1488.1182-.0894.3518-.1226.6096-.0867.3163.0441.6426.1938.6113.4186zm7.9305-.4114c.0111.0792-.049.201-.1531.3102-.0683.0717-.212.1961-.4079.2232a.5456.5456 0 0 1-.075.0052c-.2935 0-.5414-.2344-.5607-.3717-.024-.1765.2641-.3106.5611-.352.297-.0414.6111.0088.6356.1851z"/></g>
+    <text x="1230" y="567" class="node-title">Notification Workflow Store</text>
+    <text x="1230" y="588" class="node-meta">RECIPIENT LEDGER · DELIVERY LEASE</text>
+    <text x="1182" y="616" class="node-detail">notification + durable recipient rows</text><text x="1182" y="635" class="node-detail">READY → SENDING → SENT / RETRY / FAILED</text><text x="1182" y="654" class="node-detail">lease deadline · attempt · next_attempt</text>
+  </g><g>
+    <rect x="1700" y="210" width="330" height="300" rx="9" fill="#fff9f0"
+      fill-opacity=".9" stroke="#b56b13" stroke-opacity=".72" stroke-width="1.25"
+      filter="url(#node-shadow)"/>
+    <rect x="1700" y="210" width="6" height="300" rx="3" fill="#b56b13"/>
+    <g transform="translate(1720 226) scale(1.5833333333333333)"><path fill="#6db33f" d="m23.693 10.7058-4.73-8.1844c-.4094-.7106-1.4166-1.2942-2.2402-1.2942H7.2725c-.819 0-1.8308.5836-2.2402 1.2942L.307 10.7058c-.4095.7106-.4095 1.873 0 2.5837l4.7252 8.189c.4094.7107 1.4166 1.2943 2.2402 1.2943h9.455c.819 0 1.826-.5836 2.2402-1.2942l4.7252-8.189c.4095-.7107.4095-1.8732 0-2.5838zM10.9763 5.7547c0-.5365.4377-.9742.9742-.9742s.9742.4377.9742.9742v5.8217c0 .5366-.4377.9742-.9742.9742s-.9742-.4376-.9742-.9742zm.9742 12.4294c-3.6427 0-6.6077-2.965-6.6077-6.6077.0047-2.0896.993-4.0521 2.6685-5.304a.8657.8657 0 0 1 1.2142.1788.8657.8657 0 0 1-.1788 1.2143c-2.1602 1.6048-2.612 4.6592-1.0072 6.8194 1.6049 2.1603 4.6593 2.612 6.8195 1.0072 1.2378-.9177 1.9673-2.372 1.9673-3.9157a4.8972 4.8972 0 0 0-1.9861-3.925c-.386-.2824-.466-.8284-.1836-1.2143.2824-.386.8283-.466 1.2143-.1835 1.6895 1.2471 2.6826 3.2238 2.6873 5.3228 0 3.6474-2.965 6.6077-6.6077 6.6077z"/></g>
+    <text x="1772" y="241" class="node-title">Email Worker</text>
+    <text x="1772" y="262" class="node-meta">SCHEDULED · BOUNDED BATCH</text>
+    <line x1="1720" y1="273" x2="2010" y2="273"
+      stroke="#b56b13" stroke-opacity=".24"/>
+    <g>
+        <rect x="1722" y="282" width="138" height="32" rx="5"
+          fill="#ffffff" fill-opacity=".96" stroke="#b56b13" stroke-opacity=".35"/>
+        <circle cx="1736" cy="298" r="3.5" fill="#b56b13"/>
+        <text x="1748" y="304" class="cluster-member">SKIP LOCKED Claim</text>
+      </g><g>
+        <rect x="1870" y="282" width="138" height="32" rx="5"
+          fill="#ffffff" fill-opacity=".96" stroke="#b56b13" stroke-opacity=".35"/>
+        <circle cx="1884" cy="298" r="3.5" fill="#b56b13"/>
+        <text x="1896" y="304" class="cluster-member">Delivery Lease</text>
+      </g><g>
+        <rect x="1722" y="323" width="138" height="32" rx="5"
+          fill="#ffffff" fill-opacity=".96" stroke="#b56b13" stroke-opacity=".35"/>
+        <circle cx="1736" cy="339" r="3.5" fill="#b56b13"/>
+        <text x="1748" y="345" class="cluster-member">HTML + Text Render</text>
+      </g><g>
+        <rect x="1870" y="323" width="138" height="32" rx="5"
+          fill="#ffffff" fill-opacity=".96" stroke="#b56b13" stroke-opacity=".35"/>
+        <circle cx="1884" cy="339" r="3.5" fill="#b56b13"/>
+        <text x="1896" y="345" class="cluster-member">Send + Reconcile</text>
+      </g>
+    <g>
+      <rect x="1722" y="448" width="286" height="48" rx="5"
+        fill="#fdf5f5" fill-opacity=".78" stroke="#ba4a52" stroke-opacity=".5"/>
+      <g transform="translate(1732 460) scale(1)"><path fill="#ea4335" d="M24 5.457v13.909c0 .904-.732 1.636-1.636 1.636h-3.819V11.73L12 16.64l-6.545-4.91v9.273H1.636A1.636 1.636 0 0 1 0 19.366V5.457c0-2.023 2.309-3.178 3.927-1.964L5.455 4.64 12 9.548l6.545-4.91 1.528-1.145C21.69 2.28 24 3.434 24 5.457z"/></g>
+      <text x="1764" y="467" class="resource-title">Template Set</text>
+      <text x="1764" y="484" class="resource-meta">ARTICLE · ALERT · OTP</text>
+    </g>
+  </g><g>
+    <rect x="2060" y="235" width="190" height="135" rx="7" fill="#ffffff"
+      stroke="#596873" stroke-width="1.2" filter="url(#node-shadow)"/>
+    <rect x="2060" y="235" width="5" height="135" rx="2.5" fill="#ba4a52"/>
+    <g transform="translate(2080 253) scale(1.5)"><path fill="#ea4335" d="M24 5.457v13.909c0 .904-.732 1.636-1.636 1.636h-3.819V11.73L12 16.64l-6.545-4.91v9.273H1.636A1.636 1.636 0 0 1 0 19.366V5.457c0-2.023 2.309-3.178 3.927-1.964L5.455 4.64 12 9.548l6.545-4.91 1.528-1.145C21.69 2.28 24 3.434 24 5.457z"/></g>
+    <text x="2130" y="267" class="node-title">Email Provider</text>
+    <text x="2130" y="287" class="node-meta">SMTP</text>
+    <text x="2082" y="317" class="node-detail">provider response</text>
+  </g><g>
+    <g transform="translate(2314 247) scale(2.1666666666666665)" fill="none" stroke="#14805e" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="1"/><path d="M4 7l8 6 8-6"/></g>
+    <text x="2340" y="321" text-anchor="middle" class="node-title">Inbox</text>
+    <text x="2340" y="341" text-anchor="middle" class="node-meta">SUBSCRIBER / ADMIN</text>
+  </g><g>
+    <rect x="180" y="600" width="310" height="110" rx="7" fill="#ffffff"
+      stroke="#596873" stroke-width="1.2" filter="url(#node-shadow)"/>
+    <rect x="180" y="600" width="5" height="110" rx="2.5" fill="#1769aa"/>
+    <g transform="translate(200 618) scale(1.5)" fill="none" stroke="#1769aa" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="10" width="16" height="11" rx="1"/><path d="M8 10V7a4 4 0 018 0v3M12 14v3"/></g>
+    <text x="250" y="632" class="node-title">OTP Mail Adapter</text>
+    <text x="250" y="652" class="node-meta">SHORT-LIVED CODE</text>
+    <text x="202" y="682" class="node-detail">generic response · rate limit · no account enumeration</text>
+  </g><g>
+    <rect x="825" y="820" width="240" height="56" rx="28" fill="#ffffff"
+      stroke="#596873" stroke-width="1.3" filter="url(#node-shadow)"/>
+    <path d="M 1037 824
+      C 1017.96 824, 1017.96 872, 1037 872"
+      fill="none" stroke="#5f6f7a" stroke-width="1.15"/>
+    <g transform="translate(845 832) scale(1.3333333333333333)"><path fill="#231f20" d="M9.71 2.136a1.43 1.43 0 0 0-2.047 0h-.007a1.48 1.48 0 0 0-.421 1.042c0 .41.161.777.422 1.039l.007.007c.257.264.616.426 1.019.426.404 0 .766-.162 1.027-.426l.003-.007c.261-.262.421-.629.421-1.039 0-.408-.159-.777-.421-1.042H9.71zM8.683 22.295c.404 0 .766-.167 1.027-.429l.003-.008c.261-.261.421-.631.421-1.036 0-.41-.159-.778-.421-1.044H9.71a1.42 1.42 0 0 0-1.027-.432 1.4 1.4 0 0 0-1.02.432h-.007c-.26.266-.422.634-.422 1.044 0 .406.161.775.422 1.036l.007.008c.258.262.617.429 1.02.429zm7.89-4.462c.359-.096.683-.33.882-.684l.027-.052a1.47 1.47 0 0 0 .114-1.067 1.454 1.454 0 0 0-.675-.896l-.021-.014a1.425 1.425 0 0 0-1.078-.132c-.36.091-.684.335-.881.686-.2.349-.241.75-.146 1.119.099.363.33.691.675.896h.002c.346.203.737.239 1.101.144zm-6.405-7.342a2.083 2.083 0 0 0-1.485-.627c-.58 0-1.103.242-1.482.627-.378.385-.612.916-.612 1.507s.233 1.124.612 1.514a2.08 2.08 0 0 0 2.967 0c.379-.39.612-.923.612-1.514s-.233-1.122-.612-1.507zm-.835-2.51c.843.141 1.6.552 2.178 1.144h.004c.092.093.182.196.265.299l1.446-.851a3.176 3.176 0 0 1-.047-1.808 3.149 3.149 0 0 1 1.456-1.926l.025-.016a3.062 3.062 0 0 1 2.345-.306c.77.21 1.465.721 1.898 1.482v.002c.431.757.518 1.626.313 2.408a3.145 3.145 0 0 1-1.456 1.928l-.198.118h-.02a3.095 3.095 0 0 1-2.154.201 3.127 3.127 0 0 1-1.514-.944l-1.444.848a4.162 4.162 0 0 1 0 2.879l1.444.846c.413-.47.939-.789 1.514-.944a3.041 3.041 0 0 1 2.371.319l.048.023v.002a3.17 3.17 0 0 1 1.408 1.906 3.215 3.215 0 0 1-.313 2.405l-.026.053-.003-.005a3.147 3.147 0 0 1-1.867 1.436 3.096 3.096 0 0 1-2.371-.318v-.006a3.156 3.156 0 0 1-1.456-1.927 3.175 3.175 0 0 1 .047-1.805l-1.446-.848a3.905 3.905 0 0 1-.265.294l-.004.005a3.938 3.938 0 0 1-2.178 1.138v1.699a3.09 3.09 0 0 1 1.56.862l.002.004c.565.572.914 1.368.914 2.243 0 .873-.35 1.664-.914 2.239l-.002.009a3.1 3.1 0 0 1-2.21.931 3.1 3.1 0 0 1-2.206-.93h-.002v-.009a3.186 3.186 0 0 1-.916-2.239c0-.875.35-1.672.916-2.243v-.004h.002a3.1 3.1 0 0 1 1.558-.862v-1.699a3.926 3.926 0 0 1-2.176-1.138l-.006-.005a4.098 4.098 0 0 1-1.173-2.874c0-1.122.452-2.136 1.173-2.872h.006a3.947 3.947 0 0 1 2.176-1.144V6.289a3.137 3.137 0 0 1-1.558-.864h-.002v-.004a3.192 3.192 0 0 1-.916-2.243c0-.871.35-1.669.916-2.243l.002-.002A3.084 3.084 0 0 1 8.683 0c.861 0 1.641.355 2.21.932v.002h.002c.565.574.914 1.372.914 2.243 0 .876-.35 1.667-.914 2.243l-.002.005a3.142 3.142 0 0 1-1.56.864v1.692zm8.121-1.129l-.012-.019a1.452 1.452 0 0 0-.87-.668 1.43 1.43 0 0 0-1.103.146h.002c-.347.2-.58.529-.677.896-.095.365-.054.768.146 1.119l.007.009c.2.347.519.579.874.673.357.103.755.059 1.098-.144l.019-.009a1.47 1.47 0 0 0 .657-.885 1.493 1.493 0 0 0-.141-1.118"/></g>
+    <text x="891" y="853" class="queue-title"
+      style="font-size:14.00px">Notification DLQ</text>
+    <text x="945" y="894" text-anchor="middle" class="queue-meta">PORTFOLIO.DLQ</text>
+  </g><g>
+    <rect x="1190" y="805" width="320" height="120" rx="7" fill="#ffffff"
+      stroke="#596873" stroke-width="1.2" filter="url(#node-shadow)"/>
+    <rect x="1190" y="805" width="5" height="120" rx="2.5" fill="#ba4a52"/>
+    <g transform="translate(1210 823) scale(1.5)" fill="none" stroke="#ba4a52" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6v6h-6M4 18v-6h6"/><path d="M6.5 8a7 7 0 0111.8-1.7L20 8M4 16l1.7 1.7A7 7 0 0017.5 16"/></g>
+    <text x="1260" y="837" class="node-title">Retry Scheduler</text>
+    <text x="1260" y="857" class="node-meta">BACKOFF · MAX ATTEMPTS</text>
+    <text x="1212" y="887" class="node-detail">expired lease recovery</text><text x="1212" y="906" class="node-detail">retry eligible recipients</text>
+  </g><g>
+    <rect x="1690" y="805" width="340" height="120" rx="7" fill="#ffffff"
+      stroke="#596873" stroke-width="1.2" filter="url(#node-shadow)"/>
+    <rect x="1690" y="805" width="5" height="120" rx="2.5" fill="#b56b13"/>
+    <g transform="translate(1710 823) scale(1.5)" fill="none" stroke="#b56b13" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l8 3v5c0 5.2-3 8.4-8 10-5-1.6-8-4.8-8-10V6z"/><path d="M8.5 12l2.2 2.2 4.8-5"/></g>
+    <text x="1760" y="837" class="node-title">Recovery Console</text>
+    <text x="1760" y="857" class="node-meta">ADMIN APPROVAL</text>
+    <text x="1712" y="887" class="node-detail">inspect · retry · DLQ replay</text><text x="1712" y="906" class="node-detail">idempotency + audit preserved</text>
+  </g><g>
+    <path d="M 1700 569 C 1700 553, 2030 553, 2030 569
+      L 2030 656 C 2030 672, 1700 672, 1700 656 Z"
+      fill="#ffffff" stroke="#596873" stroke-width="1.2" filter="url(#node-shadow)"/>
+    <ellipse cx="1865" cy="569" rx="165" ry="14" fill="#f3f8fc" stroke="#596873" stroke-width="1.2"/>
+    <g transform="translate(1720 587) scale(1.5833333333333333)"><path fill="#336791" d="M23.5594 14.7228a.5269.5269 0 0 0-.0563-.1191c-.139-.2632-.4768-.3418-1.0074-.2321-1.6533.3411-2.2935.1312-2.5256-.0191 1.342-2.0482 2.445-4.522 3.0411-6.8297.2714-1.0507.7982-3.5237.1222-4.7316a1.5641 1.5641 0 0 0-.1509-.235C21.6931.9086 19.8007.0248 17.5099.0005c-1.4947-.0158-2.7705.3461-3.1161.4794a9.449 9.449 0 0 0-.5159-.0816 8.044 8.044 0 0 0-1.3114-.1278c-1.1822-.0184-2.2038.2642-3.0498.8406-.8573-.3211-4.7888-1.645-7.2219.0788C.9359 2.1526.3086 3.8733.4302 6.3043c.0409.818.5069 3.334 1.2423 5.7436.4598 1.5065.9387 2.7019 1.4334 3.582.553.9942 1.1259 1.5933 1.7143 1.7895.4474.1491 1.1327.1441 1.8581-.7279.8012-.9635 1.5903-1.8258 1.9446-2.2069.4351.2355.9064.3625 1.39.3772a.0569.0569 0 0 0 .0004.0041 11.0312 11.0312 0 0 0-.2472.3054c-.3389.4302-.4094.5197-1.5002.7443-.3102.064-1.1344.2339-1.1464.8115-.0025.1224.0329.2309.0919.3268.2269.4231.9216.6097 1.015.6331 1.3345.3335 2.5044.092 3.3714-.6787-.017 2.231.0775 4.4174.3454 5.0874.2212.5529.7618 1.9045 2.4692 1.9043.2505 0 .5263-.0291.8296-.0941 1.7819-.3821 2.5557-1.1696 2.855-2.9059.1503-.8707.4016-2.8753.5388-4.1012.0169-.0703.0357-.1207.057-.1362.0007-.0005.0697-.0471.4272.0307a.3673.3673 0 0 0 .0443.0068l.2539.0223.0149.001c.8468.0384 1.9114-.1426 2.5312-.4308.6438-.2988 1.8057-1.0323 1.5951-1.6698zM2.371 11.8765c-.7435-2.4358-1.1779-4.8851-1.2123-5.5719-.1086-2.1714.4171-3.6829 1.5623-4.4927 1.8367-1.2986 4.8398-.5408 6.108-.13-.0032.0032-.0066.0061-.0098.0094-2.0238 2.044-1.9758 5.536-1.9708 5.7495-.0002.0823.0066.1989.0162.3593.0348.5873.0996 1.6804-.0735 2.9184-.1609 1.1504.1937 2.2764.9728 3.0892.0806.0841.1648.1631.2518.2374-.3468.3714-1.1004 1.1926-1.9025 2.1576-.5677.6825-.9597.5517-1.0886.5087-.3919-.1307-.813-.5871-1.2381-1.3223-.4796-.839-.9635-2.0317-1.4155-3.5126zm6.0072 5.0871c-.1711-.0428-.3271-.1132-.4322-.1772.0889-.0394.2374-.0902.4833-.1409 1.2833-.2641 1.4815-.4506 1.9143-1.0002.0992-.126.2116-.2687.3673-.4426a.3549.3549 0 0 0 .0737-.1298c.1708-.1513.2724-.1099.4369-.0417.156.0646.3078.26.3695.4752.0291.1016.0619.2945-.0452.4444-.9043 1.2658-2.2216 1.2494-3.1676 1.0128zm2.094-3.988-.0525.141c-.133.3566-.2567.6881-.3334 1.003-.6674-.0021-1.3168-.2872-1.8105-.8024-.6279-.6551-.9131-1.5664-.7825-2.5004.1828-1.3079.1153-2.4468.079-3.0586-.005-.0857-.0095-.1607-.0122-.2199.2957-.2621 1.6659-.9962 2.6429-.7724.4459.1022.7176.4057.8305.928.5846 2.7038.0774 3.8307-.3302 4.7363-.084.1866-.1633.3629-.2311.5454zm7.3637 4.5725c-.0169.1768-.0358.376-.0618.5959l-.146.4383a.3547.3547 0 0 0-.0182.1077c-.0059.4747-.054.6489-.115.8693-.0634.2292-.1353.4891-.1794 1.0575-.11 1.4143-.8782 2.2267-2.4172 2.5565-1.5155.3251-1.7843-.4968-2.0212-1.2217a6.5824 6.5824 0 0 0-.0769-.2266c-.2154-.5858-.1911-1.4119-.1574-2.5551.0165-.5612-.0249-1.9013-.3302-2.6462.0044-.2932.0106-.5909.019-.8918a.3529.3529 0 0 0-.0153-.1126 1.4927 1.4927 0 0 0-.0439-.208c-.1226-.4283-.4213-.7866-.7797-.9351-.1424-.059-.4038-.1672-.7178-.0869.067-.276.1831-.5875.309-.9249l.0529-.142c.0595-.16.134-.3257.213-.5012.4265-.9476 1.0106-2.2453.3766-5.1772-.2374-1.0981-1.0304-1.6343-2.2324-1.5098-.7207.0746-1.3799.3654-1.7088.5321a5.6716 5.6716 0 0 0-.1958.1041c.0918-1.1064.4386-3.1741 1.7357-4.4823a4.0306 4.0306 0 0 1 .3033-.276.3532.3532 0 0 0 .1447-.0644c.7524-.5706 1.6945-.8506 2.802-.8325.4091.0067.8017.0339 1.1742.081 1.939.3544 3.2439 1.4468 4.0359 2.3827.8143.9623 1.2552 1.9315 1.4312 2.4543-1.3232-.1346-2.2234.1268-2.6797.779-.9926 1.4189.543 4.1729 1.2811 5.4964.1353.2426.2522.4522.2889.5413.2403.5825.5515.9713.7787 1.2552.0696.087.1372.1714.1885.245-.4008.1155-1.1208.3825-1.0552 1.717-.0123.1563-.0423.4469-.0834.8148-.0461.2077-.0702.4603-.0994.7662zm.8905-1.6211c-.0405-.8316.2691-.9185.5967-1.0105a2.8566 2.8566 0 0 0 .135-.0406 1.202 1.202 0 0 0 .1342.103c.5703.3765 1.5823.4213 3.0068.1344-.2016.1769-.5189.3994-.9533.6011-.4098.1903-1.0957.333-1.7473.3636-.7197.0336-1.0859-.0807-1.1721-.151zm.5695-9.2712c-.0059.3508-.0542.6692-.1054 1.0017-.055.3576-.112.7274-.1264 1.1762-.0142.4368.0404.8909.0932 1.3301.1066.887.216 1.8003-.2075 2.7014a3.5272 3.5272 0 0 1-.1876-.3856c-.0527-.1276-.1669-.3326-.3251-.6162-.6156-1.1041-2.0574-3.6896-1.3193-4.7446.3795-.5427 1.3408-.5661 2.1781-.463zm.2284 7.0137a12.3762 12.3762 0 0 0-.0853-.1074l-.0355-.0444c.7262-1.1995.5842-2.3862.4578-3.4385-.0519-.4318-.1009-.8396-.0885-1.2226.0129-.4061.0666-.7543.1185-1.0911.0639-.415.1288-.8443.1109-1.3505.0134-.0531.0188-.1158.0118-.1902-.0457-.4855-.5999-1.938-1.7294-3.253-.6076-.7073-1.4896-1.4972-2.6889-2.0395.5251-.1066 1.2328-.2035 2.0244-.1859 2.0515.0456 3.6746.8135 4.8242 2.2824a.908.908 0 0 1 .0667.1002c.7231 1.3556-.2762 6.2751-2.9867 10.5405zm-8.8166-6.1162c-.025.1794-.3089.4225-.6211.4225a.5821.5821 0 0 1-.0809-.0056c-.1873-.026-.3765-.144-.5059-.3156-.0458-.0605-.1203-.178-.1055-.2844.0055-.0401.0261-.0985.0925-.1488.1182-.0894.3518-.1226.6096-.0867.3163.0441.6426.1938.6113.4186zm7.9305-.4114c.0111.0792-.049.201-.1531.3102-.0683.0717-.212.1961-.4079.2232a.5456.5456 0 0 1-.075.0052c-.2935 0-.5414-.2344-.5607-.3717-.024-.1765.2641-.3106.5611-.352.297-.0414.6111.0088.6356.1851z"/></g>
+    <text x="1770" y="602" class="node-title">Delivery Outcome</text>
+    <text x="1770" y="623" class="node-meta">PROVIDER ID · STATUS</text>
+    <text x="1722" y="651" class="node-detail">reconciliation checkpoint</text>
+  </g></g>
+  <g></g>
+</svg>

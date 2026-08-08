@@ -1,0 +1,74 @@
+{
+  "title": "Subscription & Notification Subsystem",
+  "subtitle": "Verified consent · idempotent fan-out · durable recipients · leased delivery · bounded recovery",
+  "summary": "CONSENT PLANE · EVENT FAN-OUT · DELIVERY STATE MACHINE",
+  "description": "Production notification workflow covering subscription and OTP, content dispatch, recipient fan-out, durable leases, provider delivery, retry, DLQ, and replay.",
+  "theme": "light",
+  "validateNoOverlap": true,
+  "width": 2420,
+  "height": 1050,
+  "lanes": [
+    { "id": "consent", "title": "01 · CONSENT + PREFERENCES", "subtitle": "subscribe · preference state · verified unsubscribe", "x": 140, "y": 115, "w": 620, "h": 600, "accent": "blue", "fillOpacity": 0.04, "strokeOpacity": 0.3 },
+    { "id": "event", "title": "02 · EVENT INPUT", "subtitle": "content intent · schema guard · manual ACK", "x": 780, "y": 115, "w": 320, "h": 600, "accent": "purple", "fillOpacity": 0.04, "strokeOpacity": 0.3 },
+    { "id": "workflow", "title": "03 · DURABLE WORKFLOW", "subtitle": "dedupe · audience resolve · recipient state machine", "x": 1120, "y": 115, "w": 520, "h": 600, "accent": "green", "fillOpacity": 0.04, "strokeOpacity": 0.3 },
+    { "id": "delivery", "title": "04 · DELIVERY", "subtitle": "claim lease · render · send · reconcile", "x": 1660, "y": 115, "w": 710, "h": 600, "accent": "orange", "fillOpacity": 0.04, "strokeOpacity": 0.3 },
+    { "id": "recovery", "title": "05 · RETRY + POISON ISOLATION", "subtitle": "bounded backoff · DLQ · operator-approved replay", "x": 780, "y": 760, "w": 1590, "h": 210, "accent": "red", "fillOpacity": 0.03, "strokeOpacity": 0.28 }
+  ],
+  "nodes": [
+    { "id": "subscriber", "shape": "actor", "icon": "user", "title": "Subscriber", "meta": "WEB / EMAIL", "accent": "cyan", "x": 20, "y": 235, "w": 105, "h": 112 },
+    { "id": "publisher", "shape": "actor", "icon": "file", "title": "Content Platform", "meta": "PUBLISHER", "accent": "orange", "x": 20, "y": 520, "w": 105, "h": 112 },
+    {
+      "id": "subscription", "shape": "cluster", "brand": "springboot", "brandColor": "#6db33f", "icon": "user",
+      "title": "Subscription API", "meta": "CLOUD RUN · HTTP", "accent": "blue", "x": 180, "y": 175, "w": 310, "h": 360,
+      "members": ["Subscribe", "Preferences", "OTP Issue", "OTP Confirm", "Status Transition", "Audit"],
+      "resources": [{ "brand": "redis", "brandColor": "#d82c20", "icon": "lock", "title": "OTP Challenges", "meta": "VALKEY · TTL · ATTEMPTS", "accent": "red" }]
+    },
+    {
+      "id": "subscriber-store", "shape": "database", "brand": "postgresql", "brandColor": "#336791", "icon": "database",
+      "title": "Subscriber Ledger", "meta": "CONSENT · PREFERENCES", "accent": "blue", "x": 520, "y": 235, "w": 210, "h": 230,
+      "details": ["active / unsubscribed", "no hard delete"]
+    },
+    { "id": "dispatch-topic", "shape": "queue", "brand": "apachekafka", "brandColor": "#231f20", "icon": "queue", "title": "Notification Dispatch", "meta": "CONTENT.NOTIFICATION.*.V1", "metaBelow": true, "tubeHeight": 56, "accent": "purple", "x": 820, "y": 370, "w": 240, "h": 82 },
+    {
+      "id": "orchestrator", "shape": "cluster", "brand": "springboot", "brandColor": "#6db33f", "icon": "workflow",
+      "title": "Notification Orchestrator", "meta": "KAFKA CONSUMER · MANUAL ACK", "accent": "green", "x": 1160, "y": 155, "w": 440, "h": 325,
+      "members": ["Schema Validation", "Event Dedup", "Audience Resolve", "Recipient Fan-out", "Channel Policy", "Audit State"]
+    },
+    {
+      "id": "workflow-store", "shape": "database", "brand": "postgresql", "brandColor": "#336791", "icon": "database",
+      "title": "Notification Workflow Store", "meta": "RECIPIENT LEDGER · DELIVERY LEASE", "accent": "purple", "x": 1160, "y": 520, "w": 440, "h": 155,
+      "details": ["notification + durable recipient rows", "READY → SENDING → SENT / RETRY / FAILED", "lease deadline · attempt · next_attempt"]
+    },
+    {
+      "id": "worker", "shape": "cluster", "brand": "springboot", "brandColor": "#6db33f", "icon": "mail",
+      "title": "Email Worker", "meta": "SCHEDULED · BOUNDED BATCH", "accent": "orange", "x": 1700, "y": 210, "w": 330, "h": 300,
+      "members": ["SKIP LOCKED Claim", "Delivery Lease", "HTML + Text Render", "Send + Reconcile"],
+      "resources": [{ "brand": "gmail", "brandColor": "#ea4335", "icon": "mail", "title": "Template Set", "meta": "ARTICLE · ALERT · OTP", "accent": "red" }]
+    },
+    { "id": "provider", "brand": "gmail", "brandColor": "#ea4335", "icon": "cloud", "title": "Email Provider", "meta": "SMTP", "accent": "red", "x": 2060, "y": 235, "w": 190, "h": 135, "details": ["provider response"] },
+    { "id": "inbox", "shape": "actor", "icon": "mail", "title": "Inbox", "meta": "SUBSCRIBER / ADMIN", "accent": "green", "x": 2285, "y": 245, "w": 110, "h": 112 },
+    { "id": "otp-dispatch", "icon": "lock", "title": "OTP Mail Adapter", "meta": "SHORT-LIVED CODE", "accent": "blue", "x": 180, "y": 600, "w": 310, "h": 110, "details": ["generic response · rate limit · no account enumeration"] },
+    { "id": "dlq", "shape": "queue", "brand": "apachekafka", "brandColor": "#231f20", "icon": "queue", "title": "Notification DLQ", "meta": "PORTFOLIO.DLQ", "metaBelow": true, "tubeHeight": 56, "accent": "red", "x": 825, "y": 820, "w": 240, "h": 82 },
+    { "id": "retry", "icon": "retry", "title": "Retry Scheduler", "meta": "BACKOFF · MAX ATTEMPTS", "accent": "red", "x": 1190, "y": 805, "w": 320, "h": 120, "details": ["expired lease recovery", "retry eligible recipients"] },
+    { "id": "replay", "icon": "shield", "title": "Recovery Console", "meta": "ADMIN APPROVAL", "accent": "orange", "x": 1690, "y": 805, "w": 340, "h": 120, "details": ["inspect · retry · DLQ replay", "idempotency + audit preserved"] },
+    { "id": "delivery-state", "shape": "database", "brand": "postgresql", "brandColor": "#336791", "icon": "database", "title": "Delivery Outcome", "meta": "PROVIDER ID · STATUS", "accent": "blue", "x": 1700, "y": 555, "w": 330, "h": 115, "details": ["reconciliation checkpoint"] }
+  ],
+  "edges": [
+    { "from": "subscriber", "to": "subscription", "kind": "primary", "label": "subscribe / verify", "routing": "smooth" },
+    { "from": "subscription", "to": "subscriber-store", "kind": "data", "label": "consent state", "routing": "smooth" },
+    { "from": "publisher", "to": "dispatch-topic", "fromAt": { "x": 125, "y": 575 }, "toAt": { "x": 820, "y": 390 }, "kind": "event", "label": "published intent", "via": [{ "x": 650, "y": 570 }, { "x": 760, "y": 445 }], "labelAt": { "x": 610, "y": 570 }, "routing": "smooth" },
+    { "from": "dispatch-topic", "to": "orchestrator", "kind": "event", "label": "consume + manual ACK", "routing": "smooth" },
+    { "from": "subscriber-store", "to": "orchestrator", "fromSide": "right", "toSide": "bottom", "kind": "data", "label": "eligible audience", "via": [{ "x": 760, "y": 495 }, { "x": 1240, "y": 500 }], "labelAt": { "x": 1080, "y": 495 }, "routing": "smooth" },
+    { "from": "orchestrator", "to": "workflow-store", "fromSide": "bottom", "toSide": "top", "kind": "data", "label": "notification + recipients", "via": [{ "x": 1410, "y": 500 }], "routing": "smooth" },
+    { "from": "workflow-store", "to": "worker", "kind": "primary", "label": "claim READY lease", "routing": "smooth" },
+    { "from": "worker", "to": "provider", "fromAt": { "x": 2030, "y": 275 }, "toAt": { "x": 2060, "y": 275 }, "kind": "primary", "label": "send", "routing": "smooth" },
+    { "from": "provider", "to": "inbox", "fromAt": { "x": 2250, "y": 275 }, "toAt": { "x": 2285, "y": 285 }, "kind": "primary", "label": "deliver", "routing": "smooth" },
+    { "from": "subscription", "to": "otp-dispatch", "fromSide": "bottom", "toSide": "top", "kind": "sync", "label": "OTP challenge", "via": [{ "x": 350, "y": 570 }], "routing": "smooth" },
+    { "from": "otp-dispatch", "to": "provider", "fromSide": "right", "toAt": { "x": 2155, "y": 370 }, "kind": "primary", "label": "OTP email", "via": [{ "x": 540, "y": 705 }, { "x": 1900, "y": 705 }, { "x": 2155, "y": 500 }], "labelAt": { "x": 1110, "y": 705 }, "routing": "smooth" },
+    { "from": "dispatch-topic", "to": "dlq", "fromSide": "bottom", "toSide": "top", "kind": "recovery", "label": "invalid / poison", "via": [{ "x": 900, "y": 620 }], "routing": "smooth" },
+    { "from": "workflow-store", "to": "retry", "fromSide": "bottom", "toSide": "top", "kind": "recovery", "label": "RETRY / expired lease", "routing": "smooth" },
+    { "from": "retry", "to": "replay", "kind": "recovery", "label": "manual escalation", "routing": "smooth" },
+    { "from": "dlq", "to": "replay", "fromSide": "bottom", "toSide": "bottom", "kind": "recovery", "label": "poison event", "via": [{ "x": 820, "y": 900 }, { "x": 1685, "y": 900 }], "labelAt": { "x": 1240, "y": 900 }, "routing": "smooth" },
+    { "from": "worker", "to": "delivery-state", "fromSide": "bottom", "toSide": "top", "kind": "data", "label": "SENT / FAILED", "via": [{ "x": 1900, "y": 535 }], "routing": "smooth" }
+  ]
+}
