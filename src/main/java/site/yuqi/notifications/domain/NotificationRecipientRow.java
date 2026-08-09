@@ -20,5 +20,11 @@ public record NotificationRecipientRow(
         String notificationTitle,
         String notificationBody,
         String notificationUrl,
+        String traceId,
+        String correlationId,
+        String causationId,
+        String sourceType,
+        String sourceId,
+        Integer sourceVersion,
         OffsetDateTime createdAt
 ) {}

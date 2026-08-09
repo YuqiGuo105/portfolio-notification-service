@@ -15,7 +15,9 @@ public class NotificationRepository {
 
     private final JdbcTemplate jdbc;
 
-    public UUID insert(UUID eventAuditId, String topic, String title, String body, String url) {
+    public UUID insert(UUID eventAuditId, String topic, String title, String body, String url,
+                       String traceId, String correlationId, String causationId,
+                       String sourceType, String sourceId, Integer sourceVersion) {
         if (!isPostgres()) {
             List<UUID> existing = jdbc.query(
                     "select id from public.notifications where event_audit_id = ?",
@@ -23,19 +25,27 @@ public class NotificationRepository {
             if (!existing.isEmpty()) return existing.getFirst();
             UUID id = UUID.randomUUID();
             jdbc.update(
-                    "insert into public.notifications (id, event_audit_id, topic, title, body, url) " +
-                            "values (?, ?, ?, ?, ?, ?)",
-                    id, eventAuditId, topic, title, body, url);
+                    "insert into public.notifications (id, event_audit_id, topic, title, body, url, " +
+                            "trace_id, correlation_id, causation_id, source_type, source_id, source_version) " +
+                            "values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    id, eventAuditId, topic, title, body, url, traceId, correlationId, causationId,
+                    sourceType, sourceId, sourceVersion);
             return id;
         }
         UUID id = UUID.randomUUID();
         jdbc.update("""
-                insert into public.notifications (id, event_audit_id, topic, title, body, url)
-                values (?, ?, ?, ?, ?, ?)
+                insert into public.notifications (id, event_audit_id, topic, title, body, url,
+                                                   trace_id, correlation_id, causation_id,
+                                                   source_type, source_id, source_version)
+                values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 on conflict (event_audit_id) where event_audit_id is not null
-                do update set event_audit_id = excluded.event_audit_id
+                do update set event_audit_id = excluded.event_audit_id,
+                              trace_id = excluded.trace_id,
+                              correlation_id = excluded.correlation_id,
+                              causation_id = excluded.causation_id
                 """,
-                id, eventAuditId, topic, title, body, url);
+                id, eventAuditId, topic, title, body, url, traceId, correlationId, causationId,
+                sourceType, sourceId, sourceVersion);
         return jdbc.queryForObject(
                 "select id from public.notifications where event_audit_id = ?",
                 (rs, rowNum) -> (UUID) rs.getObject(1), eventAuditId);

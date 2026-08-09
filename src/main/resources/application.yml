@@ -168,6 +168,7 @@ springdoc:
   #   openssl rand -hex 32
   internal-token: ${INTERNAL_API_TOKEN:}
   kafka:
+    operations-topic: ${KAFKA_TOPIC_OPERATION_EVENTS:platform.operation.events.v1}
     retry-interval-ms: ${KAFKA_RETRY_INTERVAL_MS:2000}
     content-events-topic: ${KAFKA_TOPIC_CONTENT_EVENTS:portfolio.content-events}
     dlq-topic: ${KAFKA_TOPIC_DLQ:portfolio.dlq}

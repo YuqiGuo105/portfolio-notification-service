@@ -74,6 +74,12 @@ create table public.notifications (
     title           varchar(1024) not null,
     body            clob,
     url             varchar(1024),
+    trace_id        varchar(64),
+    correlation_id  varchar(255),
+    causation_id    varchar(255),
+    source_type     varchar(64),
+    source_id       varchar(255),
+    source_version  integer,
     created_at      timestamp with time zone not null default current_timestamp,
     foreign key (event_audit_id) references public.content_event_audit(id) on delete set null,
     unique (event_audit_id)

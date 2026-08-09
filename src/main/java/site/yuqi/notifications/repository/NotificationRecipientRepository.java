@@ -47,7 +47,8 @@ public class NotificationRecipientRepository {
         String sql = "select r.id, r.notification_id, r.subscriber_id, r.channel, r.status, " +
                 "       r.retry_count, r.next_retry_at, r.sent_at, r.read_at, r.last_error, " +
                 "       r.idempotency_key, r.created_at, " +
-                "       n.topic as n_topic, n.title as n_title, n.body as n_body, n.url as n_url " +
+                "       n.topic as n_topic, n.title as n_title, n.body as n_body, n.url as n_url, " +
+                "       n.trace_id, n.correlation_id, n.causation_id, n.source_type, n.source_id, n.source_version " +
                 "  from public.notification_recipients r " +
                 "  join public.notifications n on n.id = r.notification_id " +
                 " where r.subscriber_id = ? and r.channel = 'WEB' " + filter +
@@ -113,7 +114,9 @@ public class NotificationRecipientRepository {
                 select c.id, c.notification_id, c.subscriber_id, c.channel, c.status,
                        c.retry_count, c.next_retry_at, c.sent_at, c.read_at, c.last_error,
                        c.idempotency_key, c.created_at,
-                       n.topic as n_topic, n.title as n_title, n.body as n_body, n.url as n_url
+                       n.topic as n_topic, n.title as n_title, n.body as n_body, n.url as n_url,
+                       n.trace_id, n.correlation_id, n.causation_id,
+                       n.source_type, n.source_id, n.source_version
                   from claimed c
                   join public.notifications n on n.id = c.notification_id
                  order by c.created_at asc
@@ -163,7 +166,8 @@ public class NotificationRecipientRepository {
         String sql = "select r.id, r.notification_id, r.subscriber_id, r.channel, r.status, " +
                 "       r.retry_count, r.next_retry_at, r.sent_at, r.read_at, r.last_error, " +
                 "       r.idempotency_key, r.created_at, " +
-                "       n.topic as n_topic, n.title as n_title, n.body as n_body, n.url as n_url " +
+                "       n.topic as n_topic, n.title as n_title, n.body as n_body, n.url as n_url, " +
+                "       n.trace_id, n.correlation_id, n.causation_id, n.source_type, n.source_id, n.source_version " +
                 "  from public.notification_recipients r " +
                 "  join public.notifications n on n.id = r.notification_id " +
                 " where r.id in (" + placeholders + ")";
@@ -224,6 +228,12 @@ public class NotificationRecipientRepository {
                 rs.getString("n_title"),
                 rs.getString("n_body"),
                 rs.getString("n_url"),
+                rs.getString("trace_id"),
+                rs.getString("correlation_id"),
+                rs.getString("causation_id"),
+                rs.getString("source_type"),
+                rs.getString("source_id"),
+                (Integer) rs.getObject("source_version"),
                 toOdt(rs.getTimestamp("created_at"))
         );
     }

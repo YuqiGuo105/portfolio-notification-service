@@ -15,6 +15,7 @@ import site.yuqi.notifications.repository.ContentEventAuditRepository.AuditSumma
 import site.yuqi.notifications.repository.NotificationRecipientRepository;
 import site.yuqi.notifications.repository.NotificationRepository;
 import site.yuqi.notifications.repository.SubscriptionPreferenceRepository;
+import site.yuqi.notifications.operations.OperationEventPublisher;
 
 import java.util.List;
 import java.util.UUID;
@@ -30,6 +31,7 @@ public class ContentEventProcessor {
     private final NotificationRecipientRepository recipientRepo;
     private final ObjectMapper objectMapper;
     private final EmailPreviewService previewService;
+    private final OperationEventPublisher operations;
     private final String baseUrl;
 
     public ContentEventProcessor(ContentEventAuditRepository auditRepo,
@@ -39,6 +41,7 @@ public class ContentEventProcessor {
                                  NotificationRecipientRepository recipientRepo,
                                  ObjectMapper objectMapper,
                                  EmailPreviewService previewService,
+                                 OperationEventPublisher operations,
                                  @Value("${portfolio.base-url:https://www.yuqi.site}") String baseUrl) {
         this.auditRepo = auditRepo;
         this.prefRepo = prefRepo;
@@ -47,6 +50,7 @@ public class ContentEventProcessor {
         this.recipientRepo = recipientRepo;
         this.objectMapper = objectMapper;
         this.previewService = previewService;
+        this.operations = operations;
         this.baseUrl = baseUrl;
     }
 
@@ -112,6 +116,10 @@ public class ContentEventProcessor {
         try {
             fanOut(event, auditId);
             auditRepo.markDone(auditId);
+            operations.publishAfterCommit(event.traceId(), event.correlationId(), event.eventId(),
+                    event.idempotencyKey(), "notification.fanout.completed", "SUCCEEDED",
+                    event.sourceType(), event.sourceId(), event.sourceVersion(), 1, null,
+                    java.util.Map.of("topic", event.topic(), "auditId", auditId.toString()));
             log.info("{\"event\":\"processed\",\"idempotencyKey\":\"{}\",\"auditId\":\"{}\"}",
                     event.idempotencyKey(), auditId);
             return Outcome.DONE;
@@ -119,6 +127,10 @@ public class ContentEventProcessor {
             log.error("{\"event\":\"fanout_failed\",\"auditId\":\"{}\",\"err\":\"{}\"}",
                     auditId, fanErr.getMessage());
             auditRepo.markFailed(auditId, fanErr.getMessage());
+            operations.publish(event.traceId(), event.correlationId(), event.eventId(),
+                    event.idempotencyKey(), "notification.fanout.failed", "FAILED",
+                    event.sourceType(), event.sourceId(), event.sourceVersion(), 1, null,
+                    java.util.Map.of("topic", event.topic(), "errorType", fanErr.getClass().getSimpleName()));
             TransactionAspectSupport.currentTransactionStatus().setRollbackOnly();
             return Outcome.RETRY;
         }
@@ -137,7 +149,9 @@ public class ContentEventProcessor {
 
         String absoluteUrl = toAbsoluteUrl(event.url());
         UUID notificationId = notificationRepo.insert(
-                auditId, event.topic(), event.title(), previewService.preview(event.summary()), absoluteUrl);
+                auditId, event.topic(), event.title(), previewService.preview(event.summary()), absoluteUrl,
+                event.traceId(), event.correlationId(), event.eventId(),
+                event.sourceType(), event.sourceId(), event.sourceVersion());
 
         int web = 0, em = 0, dupes = 0;
         for (SubscriptionPreference p : prefs) {
@@ -161,7 +175,9 @@ public class ContentEventProcessor {
             return;
         }
         UUID notificationId = notificationRepo.insert(
-                auditId, event.topic(), event.title(), previewService.preview(event.summary()), null);
+                auditId, event.topic(), event.title(), previewService.preview(event.summary()), null,
+                event.traceId(), event.correlationId(), event.eventId(),
+                event.sourceType(), event.sourceId(), event.sourceVersion());
         int inserted = 0;
         for (UUID subscriberId : subscriberIds) {
             String key = auditId + ":" + subscriberId + ":ADMIN_EMAIL";

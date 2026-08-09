@@ -23,10 +23,15 @@ import java.util.Map;
 @JsonIgnoreProperties(ignoreUnknown = true)
 public record ContentEvent(
         String eventId,
+        String traceId,
+        String correlationId,
+        String causationId,
+        Integer schemaVersion,
         String eventType,
         @JsonAlias({"notificationTopic"}) String topic,
         String sourceType,
         String sourceId,
+        Integer sourceVersion,
         String title,
         String summary,
         String url,
@@ -34,6 +39,23 @@ public record ContentEvent(
         String idempotencyKey,
         Map<String, Object> metadata
 ) {
+    /** Backwards-compatible constructor for the legacy HTTP and Kafka payload shape. */
+    public ContentEvent(
+            String eventId,
+            String eventType,
+            String topic,
+            String sourceType,
+            String sourceId,
+            String title,
+            String summary,
+            String url,
+            OffsetDateTime createdAt,
+            String idempotencyKey,
+            Map<String, Object> metadata) {
+        this(eventId, null, null, null, 1, eventType, topic, sourceType, sourceId,
+                null, title, summary, url, createdAt, idempotencyKey, metadata);
+    }
+
     /**
      * Returns the explicit {@link #eventType} when present, otherwise derives
      * it from {@link #sourceType} for admin-service payloads that omit the

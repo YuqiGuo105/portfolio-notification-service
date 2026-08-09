@@ -11,6 +11,7 @@ import org.springframework.mail.javamail.MimeMessageHelper;
 import org.springframework.stereotype.Service;
 import site.yuqi.notifications.domain.NotificationRecipientRow;
 import site.yuqi.notifications.repository.NotificationRecipientRepository;
+import site.yuqi.notifications.operations.OperationEventPublisher;
 
 import java.nio.charset.StandardCharsets;
 import java.util.List;
@@ -24,6 +25,7 @@ public class EmailDispatchService {
     private final JdbcTemplate jdbc;
     private final JavaMailSender mailSender;
     private final EmailPreviewService previewService;
+    private final OperationEventPublisher operations;
     private final String fromAddress;
     private final int batchSize;
     private final int maxRetry;
@@ -32,6 +34,7 @@ public class EmailDispatchService {
                                 JdbcTemplate jdbc,
                                 JavaMailSender mailSender,
                                 EmailPreviewService previewService,
+                                OperationEventPublisher operations,
                                 @Value("${portfolio.email.from:noreply@yuqi.site}") String fromAddress,
                                 @Value("${portfolio.email.dispatch.batch-size:20}") int batchSize,
                                 @Value("${portfolio.email.dispatch.max-retry:5}") int maxRetry) {
@@ -39,6 +42,7 @@ public class EmailDispatchService {
         this.jdbc = jdbc;
         this.mailSender = mailSender;
         this.previewService = previewService;
+        this.operations = operations;
         this.fromAddress = fromAddress;
         this.batchSize = batchSize;
         this.maxRetry = maxRetry;
@@ -74,6 +78,7 @@ public class EmailDispatchService {
     }
 
     private void dispatchOne(NotificationRecipientRow row) {
+        long startedNanos = System.nanoTime();
         // 1. Check subscriber status & fetch email
         Map<String, Object> subRow;
         try {
@@ -93,6 +98,8 @@ public class EmailDispatchService {
         } catch (DataAccessException e) {
             recipientRepo.markFailed(row.id(), "subscriber lookup failed: " + e.getMessage(),
                     nextBackoff(row.retryCount()));
+            publishDelivery(row, "notification.email.delivery_failed", "FAILED", startedNanos,
+                    Map.of("errorType", e.getClass().getSimpleName()));
             return;
         }
 
@@ -103,6 +110,8 @@ public class EmailDispatchService {
             recipientRepo.markSkipped(row.id(), "subscriber status=" + status);
             log.info("{\"event\":\"skip_inactive\",\"recipientId\":\"{}\",\"subscriberStatus\":\"{}\"}",
                     row.id(), status);
+            publishDelivery(row, "notification.email.skipped", "SUCCEEDED", startedNanos,
+                    Map.of("reason", "subscriber_not_active"));
             return;
         }
 
@@ -119,12 +128,24 @@ public class EmailDispatchService {
             recipientRepo.markSent(row.id());
             log.info("{\"event\":\"email_sent\",\"recipientId\":\"{}\",\"subscriberId\":\"{}\"}",
                     row.id(), row.subscriberId());
+            publishDelivery(row, "notification.email.delivered", "SUCCEEDED", startedNanos,
+                    Map.of("channel", "EMAIL"));
         } catch (MailException | jakarta.mail.MessagingException e) {
             int backoff = nextBackoff(row.retryCount());
             recipientRepo.markFailed(row.id(), e.getMessage(), backoff);
             log.warn("{\"event\":\"email_failed\",\"recipientId\":\"{}\",\"backoffSec\":{},\"err\":\"{}\"}",
                     row.id(), backoff, e.getMessage());
+            publishDelivery(row, "notification.email.delivery_failed", "FAILED", startedNanos,
+                    Map.of("errorType", e.getClass().getSimpleName(), "backoffSeconds", backoff));
         }
+    }
+
+    private void publishDelivery(NotificationRecipientRow row, String eventType, String status,
+                                 long startedNanos, Map<String, Object> attributes) {
+        operations.publish(row.traceId(), row.correlationId(), row.causationId(), row.idempotencyKey(),
+                eventType, status, row.sourceType(), row.sourceId(), row.sourceVersion(),
+                row.retryCount() + 1, Math.max(0, (System.nanoTime() - startedNanos) / 1_000_000),
+                attributes);
     }
 
     static int nextBackoff(int currentRetryCount) {
