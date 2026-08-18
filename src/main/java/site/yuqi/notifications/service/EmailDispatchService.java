@@ -1,6 +1,7 @@
 package site.yuqi.notifications.service;
 
 import jakarta.mail.internet.MimeMessage;
+import jakarta.annotation.PreDestroy;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.dao.DataAccessException;
@@ -16,6 +17,11 @@ import site.yuqi.notifications.operations.OperationEventPublisher;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ArrayBlockingQueue;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 
 @Service
 @Slf4j
@@ -29,6 +35,8 @@ public class EmailDispatchService {
     private final String fromAddress;
     private final int batchSize;
     private final int maxRetry;
+    private final ThreadPoolExecutor deliveryExecutor;
+    private final long batchTimeoutSeconds;
 
     public EmailDispatchService(NotificationRecipientRepository recipientRepo,
                                 JdbcTemplate jdbc,
@@ -37,7 +45,10 @@ public class EmailDispatchService {
                                 OperationEventPublisher operations,
                                 @Value("${portfolio.email.from:noreply@yuqi.site}") String fromAddress,
                                 @Value("${portfolio.email.dispatch.batch-size:20}") int batchSize,
-                                @Value("${portfolio.email.dispatch.max-retry:5}") int maxRetry) {
+                                @Value("${portfolio.email.dispatch.max-retry:5}") int maxRetry,
+                                @Value("${portfolio.email.dispatch.concurrency:4}") int concurrency,
+                                @Value("${portfolio.email.dispatch.queue-capacity:20}") int queueCapacity,
+                                @Value("${portfolio.email.dispatch.batch-timeout-seconds:90}") long batchTimeoutSeconds) {
         this.recipientRepo = recipientRepo;
         this.jdbc = jdbc;
         this.mailSender = mailSender;
@@ -46,6 +57,22 @@ public class EmailDispatchService {
         this.fromAddress = fromAddress;
         this.batchSize = batchSize;
         this.maxRetry = maxRetry;
+        this.batchTimeoutSeconds = Math.max(10, batchTimeoutSeconds);
+        AtomicInteger sequence = new AtomicInteger();
+        int threads = Math.max(1, concurrency);
+        this.deliveryExecutor = new ThreadPoolExecutor(
+                threads,
+                threads,
+                30,
+                TimeUnit.SECONDS,
+                new ArrayBlockingQueue<>(Math.max(1, queueCapacity)),
+                task -> {
+                    Thread thread = new Thread(task, "email-delivery-" + sequence.incrementAndGet());
+                    thread.setDaemon(true);
+                    return thread;
+                },
+                new ThreadPoolExecutor.CallerRunsPolicy());
+        this.deliveryExecutor.allowCoreThreadTimeOut(true);
     }
 
     /**
@@ -63,18 +90,32 @@ public class EmailDispatchService {
 
         log.info("{\"event\":\"dispatch_batch\",\"size\":{}}", claimed.size());
 
-        int attempted = 0;
-        for (NotificationRecipientRow row : claimed) {
-            attempted++;
-            try {
-                dispatchOne(row);
-            } catch (Exception e) {
-                log.error("{\"event\":\"dispatch_unexpected_error\",\"recipientId\":\"{}\",\"err\":\"{}\"}",
-                        row.id(), e.getMessage());
-                recipientRepo.markFailed(row.id(), e.getMessage(), nextBackoff(row.retryCount()));
-            }
+        CompletableFuture<?>[] deliveries = claimed.stream()
+                .map(row -> CompletableFuture.runAsync(() -> dispatchSafely(row), deliveryExecutor))
+                .toArray(CompletableFuture[]::new);
+        try {
+            CompletableFuture.allOf(deliveries).get(batchTimeoutSeconds, TimeUnit.SECONDS);
+        } catch (Exception error) {
+            // Unfinished rows remain leased and are reclaimed after lease expiry.
+            log.warn("{\"event\":\"dispatch_batch_incomplete\",\"size\":{},\"err\":\"{}\"}",
+                    claimed.size(), error.getMessage());
         }
-        return attempted;
+        return claimed.size();
+    }
+
+    private void dispatchSafely(NotificationRecipientRow row) {
+        try {
+            dispatchOne(row);
+        } catch (Exception e) {
+            log.error("{\"event\":\"dispatch_unexpected_error\",\"recipientId\":\"{}\",\"err\":\"{}\"}",
+                    row.id(), e.getMessage());
+            recordFailure(row, e.getMessage(), nextBackoff(row.retryCount()));
+        }
+    }
+
+    @PreDestroy
+    void closeExecutor() {
+        deliveryExecutor.shutdown();
     }
 
     private void dispatchOne(NotificationRecipientRow row) {
@@ -96,7 +137,7 @@ public class EmailDispatchService {
                         row.subscriberId());
             }
         } catch (DataAccessException e) {
-            recipientRepo.markFailed(row.id(), "subscriber lookup failed: " + e.getMessage(),
+            recordFailure(row, "subscriber lookup failed: " + e.getMessage(),
                     nextBackoff(row.retryCount()));
             publishDelivery(row, "notification.email.delivery_failed", "FAILED", startedNanos,
                     Map.of("errorType", e.getClass().getSimpleName()));
@@ -107,7 +148,10 @@ public class EmailDispatchService {
         String email = (String) subRow.get("email");
 
         if (!"ACTIVE".equals(status)) {
-            recipientRepo.markSkipped(row.id(), "subscriber status=" + status);
+            if (!recipientRepo.markSkipped(row.id(), row.nextRetryAt(), "subscriber status=" + status)) {
+                log.warn("{\"event\":\"stale_dispatch_result\",\"recipientId\":\"{}\",\"outcome\":\"SKIPPED\"}",
+                        row.id());
+            }
             log.info("{\"event\":\"skip_inactive\",\"recipientId\":\"{}\",\"subscriberStatus\":\"{}\"}",
                     row.id(), status);
             publishDelivery(row, "notification.email.skipped", "SUCCEEDED", startedNanos,
@@ -125,18 +169,29 @@ public class EmailDispatchService {
             helper.setText(buildPlainBody(row), buildHtmlBody(row));
             mailSender.send(mime);
 
-            recipientRepo.markSent(row.id());
+            if (!recipientRepo.markSent(row.id(), row.nextRetryAt())) {
+                log.warn("{\"event\":\"stale_dispatch_result\",\"recipientId\":\"{}\",\"outcome\":\"SENT\"}",
+                        row.id());
+                return;
+            }
             log.info("{\"event\":\"email_sent\",\"recipientId\":\"{}\",\"subscriberId\":\"{}\"}",
                     row.id(), row.subscriberId());
             publishDelivery(row, "notification.email.delivered", "SUCCEEDED", startedNanos,
                     Map.of("channel", "EMAIL"));
         } catch (MailException | jakarta.mail.MessagingException e) {
             int backoff = nextBackoff(row.retryCount());
-            recipientRepo.markFailed(row.id(), e.getMessage(), backoff);
+            recordFailure(row, e.getMessage(), backoff);
             log.warn("{\"event\":\"email_failed\",\"recipientId\":\"{}\",\"backoffSec\":{},\"err\":\"{}\"}",
                     row.id(), backoff, e.getMessage());
             publishDelivery(row, "notification.email.delivery_failed", "FAILED", startedNanos,
                     Map.of("errorType", e.getClass().getSimpleName(), "backoffSeconds", backoff));
+        }
+    }
+
+    private void recordFailure(NotificationRecipientRow row, String error, int backoffSeconds) {
+        if (!recipientRepo.markFailed(row.id(), row.nextRetryAt(), error, backoffSeconds)) {
+            log.warn("{\"event\":\"stale_dispatch_result\",\"recipientId\":\"{}\",\"outcome\":\"FAILED\"}",
+                    row.id());
         }
     }
 

@@ -182,33 +182,36 @@ public class NotificationRecipientRepository {
         return Boolean.TRUE.equals(result);
     }
 
-    public void markSent(UUID id) {
-        jdbc.update(
+    public boolean markSent(UUID id, java.time.OffsetDateTime expectedLeaseUntil) {
+        return jdbc.update(
                 "update public.notification_recipients " +
                         "   set status = 'SENT', sent_at = now(), last_error = null, next_retry_at = null " +
-                        " where id = ?",
-                id);
+                        " where id = ? and next_retry_at = ? and status in ('PENDING','FAILED')",
+                id, java.sql.Timestamp.from(expectedLeaseUntil.toInstant())) == 1;
     }
 
-    public void markFailed(UUID id, String error, int backoffSeconds) {
+    public boolean markFailed(UUID id, java.time.OffsetDateTime expectedLeaseUntil,
+                              String error, int backoffSeconds) {
         java.sql.Timestamp next = java.sql.Timestamp.from(
                 java.time.Instant.now().plusSeconds(backoffSeconds));
-        jdbc.update(
+        return jdbc.update(
                 "update public.notification_recipients " +
                         "   set status = 'FAILED', " +
                         "       retry_count = retry_count + 1, " +
                         "       last_error = ?, " +
                         "       next_retry_at = ? " +
-                        " where id = ?",
-                truncate(error, 2000), next, id);
+                        " where id = ? and next_retry_at = ? and status in ('PENDING','FAILED')",
+                truncate(error, 2000), next, id,
+                java.sql.Timestamp.from(expectedLeaseUntil.toInstant())) == 1;
     }
 
-    public void markSkipped(UUID id, String reason) {
-        jdbc.update(
+    public boolean markSkipped(UUID id, java.time.OffsetDateTime expectedLeaseUntil, String reason) {
+        return jdbc.update(
                 "update public.notification_recipients " +
                         "   set status = 'SKIPPED', last_error = ? " +
-                        " where id = ?",
-                truncate(reason, 2000), id);
+                        " where id = ? and next_retry_at = ? and status in ('PENDING','FAILED')",
+                truncate(reason, 2000), id,
+                java.sql.Timestamp.from(expectedLeaseUntil.toInstant())) == 1;
     }
 
     private static NotificationRecipientRow map(ResultSet rs) throws SQLException {

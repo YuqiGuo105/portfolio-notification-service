@@ -109,6 +109,11 @@ management:
 portfolio:
   base-url: ${PORTFOLIO_BASE_URL:https://www.yuqi.site}
   internal-token: ${INTERNAL_API_TOKEN:}
+  email:
+    dispatch:
+      concurrency: ${EMAIL_DISPATCH_CONCURRENCY:4}
+      queue-capacity: ${EMAIL_DISPATCH_QUEUE_CAPACITY:20}
+      batch-timeout-seconds: ${EMAIL_DISPATCH_BATCH_TIMEOUT_SECONDS:90}
   swagger:
     # Supabase JWT secret (from Supabase Dashboard → Project Settings → API → JWT Secret).
     # BearerTokenValidator uses this to verify Supabase access tokens. Property name
