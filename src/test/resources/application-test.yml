@@ -1,3 +1,4 @@
 portfolio:
+  internal-token: test-internal-token
   operations:
     enabled: false

@@ -15,6 +15,9 @@ import site.yuqi.notifications.dto.AdminNotificationListResponse;
 import site.yuqi.notifications.dto.AdminAlertSubscriptionItem;
 import site.yuqi.notifications.dto.AdminSubscriberItem;
 import site.yuqi.notifications.dto.AdminSubscriberListResponse;
+import site.yuqi.notifications.dto.AdminDeliveryItem;
+import site.yuqi.notifications.dto.AdminDeliveryListResponse;
+import site.yuqi.notifications.dto.AdminDeliveryStatsResponse;
 import site.yuqi.notifications.dto.UpdateSubscriberStatusRequest;
 import site.yuqi.notifications.dto.UpsertAdminAlertSubscriptionRequest;
 import site.yuqi.notifications.service.AdminNotificationService;
@@ -50,6 +53,27 @@ public class AdminNotificationController {
             @RequestParam(value = "limit", defaultValue = "50") int limit,
             @RequestParam(value = "offset", defaultValue = "0") int offset) {
         return ResponseEntity.ok(service.listNotifications(limit, offset));
+    }
+
+    @GetMapping("/notifications/stats")
+    public ResponseEntity<AdminDeliveryStatsResponse> getDeliveryStats(
+            @RequestParam(value = "window", defaultValue = "24h") String window,
+            @RequestParam(value = "channel", required = false) String channel) {
+        return ResponseEntity.ok(service.getDeliveryStats(window, channel));
+    }
+
+    @GetMapping("/notifications/deliveries")
+    public ResponseEntity<AdminDeliveryListResponse> listDeliveries(
+            @RequestParam(value = "channel", required = false) String channel,
+            @RequestParam(value = "status", defaultValue = "FAILED") String status,
+            @RequestParam(value = "limit", defaultValue = "50") int limit) {
+        return ResponseEntity.ok(service.listDeliveries(channel, status, limit));
+    }
+
+    @PostMapping("/notifications/deliveries/{recipientId}/retry")
+    public ResponseEntity<AdminDeliveryItem> retryFailedDelivery(
+            @PathVariable UUID recipientId) {
+        return ResponseEntity.ok(service.retryFailedDelivery(recipientId));
     }
 
     @GetMapping("/alert-subscriptions")

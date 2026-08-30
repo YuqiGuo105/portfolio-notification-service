@@ -5,9 +5,11 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.context.annotation.Import;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.ActiveProfiles;
+import org.springframework.test.web.servlet.MockMvc;
 import site.yuqi.notifications.NotificationApplication;
 import site.yuqi.notifications.dto.ContentEvent;
 import site.yuqi.notifications.dto.NotificationListResponse;
@@ -27,8 +29,13 @@ import java.util.Map;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.*;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 @SpringBootTest(classes = NotificationApplication.class)
+@AutoConfigureMockMvc
 @ActiveProfiles("test")
 @Import(NotificationFlowTest.TestBeans.class)
 class NotificationFlowTest {
@@ -39,6 +46,7 @@ class NotificationFlowTest {
     @Autowired private NotificationService notificationService;
     @Autowired private ObjectMapper mapper;
     @Autowired private JdbcTemplate jdbc;
+    @Autowired private MockMvc mockMvc;
 
     @BeforeEach
     void cleanup() {
@@ -324,6 +332,101 @@ class NotificationFlowTest {
         assertEquals("Admin-visible article", result.items().getFirst().title());
         assertEquals(2, result.items().getFirst().recipientCount());
         assertEquals(2, result.items().getFirst().pendingCount());
+    }
+
+    @Test
+    void adminDeliveryEndpointsExposeStatsAndFailedRowsWithoutSubscriberIdentity() throws Exception {
+        SubscribeResponse subscriber = subscribe();
+        UUID notificationId = UUID.randomUUID();
+        UUID failedRecipientId = UUID.randomUUID();
+        jdbc.update("insert into public.notifications (id, topic, title, url) " +
+                        "values (?, 'ARTICLE_UPDATES', 'Delivery test', '/blog-single/test')",
+                notificationId);
+        jdbc.update("insert into public.notification_recipients " +
+                        "(id, notification_id, subscriber_id, channel, status, retry_count, " +
+                        " last_error, idempotency_key) " +
+                        "values (?, ?, ?, 'EMAIL', 'FAILED', 3, 'smtp timeout', ?)",
+                failedRecipientId, notificationId, subscriber.subscriberId(),
+                notificationId + ":" + subscriber.subscriberId() + ":EMAIL");
+
+        mockMvc.perform(get("/api/admin/notifications/stats")
+                        .header("X-Internal-Token", "test-internal-token")
+                        .param("window", "24h")
+                        .param("channel", "EMAIL"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.total").value(1))
+                .andExpect(jsonPath("$.failed").value(1));
+
+        mockMvc.perform(get("/api/admin/notifications/deliveries")
+                        .header("X-Internal-Token", "test-internal-token")
+                        .param("status", "FAILED")
+                        .param("limit", "10"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.total").value(1))
+                .andExpect(jsonPath("$.items[0].recipientId").value(failedRecipientId.toString()))
+                .andExpect(jsonPath("$.items[0].title").value("Delivery test"))
+                .andExpect(jsonPath("$.items[0].subscriberId").doesNotExist());
+    }
+
+    @Test
+    void adminRetryRequeuesOnlyFailedDeliveryAndResetsAutomaticRetryState() throws Exception {
+        SubscribeResponse subscriber = subscribe();
+        UUID notificationId = UUID.randomUUID();
+        UUID failedRecipientId = UUID.randomUUID();
+        UUID pendingRecipientId = UUID.randomUUID();
+        jdbc.update("insert into public.notifications (id, topic, title) " +
+                        "values (?, 'ARTICLE_UPDATES', 'Retry test')",
+                notificationId);
+        jdbc.update("insert into public.notification_recipients " +
+                        "(id, notification_id, subscriber_id, channel, status, retry_count, " +
+                        " next_retry_at, last_error, idempotency_key) " +
+                        "values (?, ?, ?, 'EMAIL', 'FAILED', 8, DATEADD('HOUR', 1, CURRENT_TIMESTAMP), " +
+                        " 'retry exhausted', ?)",
+                failedRecipientId, notificationId, subscriber.subscriberId(),
+                failedRecipientId + ":EMAIL");
+        jdbc.update("insert into public.notification_recipients " +
+                        "(id, notification_id, subscriber_id, channel, status, idempotency_key) " +
+                        "values (?, ?, ?, 'WEB', 'PENDING', ?)",
+                pendingRecipientId, notificationId, subscriber.subscriberId(),
+                pendingRecipientId + ":WEB");
+
+        mockMvc.perform(post("/api/admin/notifications/deliveries/{recipientId}/retry",
+                        failedRecipientId)
+                        .header("X-Internal-Token", "test-internal-token"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("PENDING"))
+                .andExpect(jsonPath("$.retryCount").value(0))
+                .andExpect(jsonPath("$.lastError").doesNotExist());
+
+        Map<String, Object> retried = jdbc.queryForMap(
+                "select status, retry_count, next_retry_at, last_error " +
+                        "from public.notification_recipients where id = ?",
+                failedRecipientId);
+        assertEquals("PENDING", retried.get("status"));
+        assertEquals(0, ((Number) retried.get("retry_count")).intValue());
+        assertNotNull(retried.get("next_retry_at"));
+        assertNull(retried.get("last_error"));
+
+        mockMvc.perform(post("/api/admin/notifications/deliveries/{recipientId}/retry",
+                        pendingRecipientId)
+                        .header("X-Internal-Token", "test-internal-token"))
+                .andExpect(status().isNotFound());
+    }
+
+    @Test
+    void adminDeliveryEndpointsRequireAuthenticationAndRejectUnsupportedFilters() throws Exception {
+        mockMvc.perform(get("/api/admin/notifications/stats"))
+                .andExpect(status().isUnauthorized());
+
+        mockMvc.perform(get("/api/admin/notifications/stats")
+                        .header("X-Internal-Token", "test-internal-token")
+                        .param("window", "30d"))
+                .andExpect(status().isBadRequest());
+
+        mockMvc.perform(get("/api/admin/notifications/deliveries")
+                        .header("X-Internal-Token", "test-internal-token")
+                        .param("status", "SENT"))
+                .andExpect(status().isBadRequest());
     }
 
     @Test

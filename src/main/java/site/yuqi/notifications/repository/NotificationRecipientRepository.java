@@ -3,6 +3,7 @@ package site.yuqi.notifications.repository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
+import site.yuqi.notifications.dto.AdminDeliveryItem;
 import site.yuqi.notifications.domain.NotificationRecipientRow;
 
 import java.sql.ResultSet;
@@ -12,6 +13,7 @@ import java.time.ZoneOffset;
 import java.util.Collections;
 import java.util.List;
 import java.util.UUID;
+import java.util.ArrayList;
 
 @Repository
 @RequiredArgsConstructor
@@ -74,6 +76,95 @@ public class NotificationRecipientRepository {
                         "   set status = 'SKIPPED', last_error = 'subscriber unsubscribed' " +
                         " where subscriber_id = ? and channel = 'EMAIL' and status in ('PENDING','FAILED')",
                 subscriberId);
+        return rows == null ? 0 : rows;
+    }
+
+    public long[] deliveryStats(OffsetDateTime from, String channel) {
+        String channelFilter = channel == null ? "" : " and channel = ?";
+        String sql = "select count(*) as total, " +
+                "sum(case when status = 'PENDING' then 1 else 0 end) as pending, " +
+                "sum(case when status = 'SENT' then 1 else 0 end) as sent, " +
+                "sum(case when status = 'FAILED' then 1 else 0 end) as failed, " +
+                "sum(case when status = 'READ' then 1 else 0 end) as read_count, " +
+                "sum(case when status = 'SKIPPED' then 1 else 0 end) as skipped " +
+                "from public.notification_recipients where created_at >= ?" + channelFilter;
+        return jdbc.query(sql, ps -> {
+            ps.setTimestamp(1, java.sql.Timestamp.from(from.toInstant()));
+            if (channel != null) ps.setString(2, channel);
+        }, rs -> {
+            if (!rs.next()) return new long[6];
+            return new long[] {
+                    rs.getLong("total"),
+                    rs.getLong("pending"),
+                    rs.getLong("sent"),
+                    rs.getLong("failed"),
+                    rs.getLong("read_count"),
+                    rs.getLong("skipped")
+            };
+        });
+    }
+
+    public List<AdminDeliveryItem> listForAdmin(String channel, String status, int limit) {
+        StringBuilder sql = new StringBuilder("""
+                select r.id, r.notification_id, r.channel, r.status, r.retry_count,
+                       r.next_retry_at, r.sent_at, r.last_error, r.created_at,
+                       n.topic, n.title, n.url
+                  from public.notification_recipients r
+                  join public.notifications n on n.id = r.notification_id
+                 where 1 = 1
+                """);
+        List<Object> args = new ArrayList<>();
+        if (channel != null) {
+            sql.append(" and r.channel = ?");
+            args.add(channel);
+        }
+        if (status != null) {
+            sql.append(" and r.status = ?");
+            args.add(status);
+        }
+        sql.append(" order by r.created_at desc limit ?");
+        args.add(limit);
+        return jdbc.query(sql.toString(), (rs, rowNum) -> mapAdminItem(rs), args.toArray());
+    }
+
+    public long countForAdmin(String channel, String status) {
+        StringBuilder sql = new StringBuilder(
+                "select count(*) from public.notification_recipients where 1 = 1");
+        List<Object> args = new ArrayList<>();
+        if (channel != null) {
+            sql.append(" and channel = ?");
+            args.add(channel);
+        }
+        if (status != null) {
+            sql.append(" and status = ?");
+            args.add(status);
+        }
+        Long count = jdbc.queryForObject(sql.toString(), Long.class, args.toArray());
+        return count == null ? 0 : count;
+    }
+
+    public java.util.Optional<AdminDeliveryItem> findAdminItem(UUID recipientId) {
+        List<AdminDeliveryItem> rows = jdbc.query("""
+                select r.id, r.notification_id, r.channel, r.status, r.retry_count,
+                       r.next_retry_at, r.sent_at, r.last_error, r.created_at,
+                       n.topic, n.title, n.url
+                  from public.notification_recipients r
+                  join public.notifications n on n.id = r.notification_id
+                 where r.id = ?
+                """, (rs, rowNum) -> mapAdminItem(rs), recipientId);
+        return rows.stream().findFirst();
+    }
+
+    public int retryFailed(UUID recipientId) {
+        Integer rows = jdbc.update("""
+                update public.notification_recipients
+                   set status = 'PENDING',
+                       retry_count = 0,
+                       next_retry_at = now(),
+                       last_error = null,
+                       updated_at = now()
+                 where id = ? and status = 'FAILED'
+                """, recipientId);
         return rows == null ? 0 : rows;
     }
 
@@ -239,6 +330,22 @@ public class NotificationRecipientRepository {
                 (Integer) rs.getObject("source_version"),
                 toOdt(rs.getTimestamp("created_at"))
         );
+    }
+
+    private static AdminDeliveryItem mapAdminItem(ResultSet rs) throws SQLException {
+        return new AdminDeliveryItem(
+                (UUID) rs.getObject("id"),
+                (UUID) rs.getObject("notification_id"),
+                rs.getString("channel"),
+                rs.getString("status"),
+                rs.getInt("retry_count"),
+                toOdt(rs.getTimestamp("next_retry_at")),
+                toOdt(rs.getTimestamp("sent_at")),
+                rs.getString("last_error"),
+                rs.getString("topic"),
+                rs.getString("title"),
+                rs.getString("url"),
+                toOdt(rs.getTimestamp("created_at")));
     }
 
     private static OffsetDateTime toOdt(java.sql.Timestamp ts) {
