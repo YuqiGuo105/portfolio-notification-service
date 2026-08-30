@@ -14,6 +14,8 @@ import java.util.Collections;
 import java.util.List;
 import java.util.UUID;
 import java.util.ArrayList;
+import java.util.Optional;
+import site.yuqi.notifications.dto.PublicationDeliveryStatusResponse;
 
 @Repository
 @RequiredArgsConstructor
@@ -102,6 +104,48 @@ public class NotificationRecipientRepository {
                     rs.getLong("skipped")
             };
         });
+    }
+
+    public Optional<PublicationDeliveryStatusResponse> findPublicationDelivery(String identifier) {
+        String sql = """
+                select a.id as event_audit_id,
+                       n.id as notification_id,
+                       a.event_id,
+                       a.idempotency_key,
+                       n.trace_id,
+                       n.correlation_id,
+                       a.source_type,
+                       a.source_id,
+                       a.status as event_status,
+                       a.retry_count as event_retry_count,
+                       a.created_at,
+                       a.processed_at,
+                       count(r.id) as email_recipients,
+                       sum(case when r.status = 'PENDING' then 1 else 0 end) as pending,
+                       sum(case when r.status = 'SENT' then 1 else 0 end) as sent,
+                       sum(case when r.status = 'FAILED' then 1 else 0 end) as failed,
+                       sum(case when r.status = 'READ' then 1 else 0 end) as read_count,
+                       sum(case when r.status = 'SKIPPED' then 1 else 0 end) as skipped
+                  from public.content_event_audit a
+                  left join public.notifications n on n.event_audit_id = a.id
+                  left join public.notification_recipients r
+                    on r.notification_id = n.id and r.channel = 'EMAIL'
+                 where a.source_id = ?
+                    or a.event_id = ?
+                    or a.idempotency_key = ?
+                    or n.correlation_id = ?
+                    or n.trace_id = ?
+                 group by a.id, n.id, a.event_id, a.idempotency_key,
+                          n.trace_id, n.correlation_id, a.source_type, a.source_id,
+                          a.status, a.retry_count, a.created_at, a.processed_at
+                 order by a.created_at desc
+                 limit 1
+                """;
+        List<PublicationDeliveryStatusResponse> rows = jdbc.query(
+                sql,
+                (rs, rowNum) -> mapPublicationDelivery(rs),
+                identifier, identifier, identifier, identifier, identifier);
+        return rows.stream().findFirst();
     }
 
     public List<AdminDeliveryItem> listForAdmin(String channel, String status, int limit) {
@@ -346,6 +390,58 @@ public class NotificationRecipientRepository {
                 rs.getString("title"),
                 rs.getString("url"),
                 toOdt(rs.getTimestamp("created_at")));
+    }
+
+    private static PublicationDeliveryStatusResponse mapPublicationDelivery(ResultSet rs)
+            throws SQLException {
+        long recipients = rs.getLong("email_recipients");
+        long pending = rs.getLong("pending");
+        long sent = rs.getLong("sent");
+        long failed = rs.getLong("failed");
+        long read = rs.getLong("read_count");
+        long skipped = rs.getLong("skipped");
+        String eventStatus = rs.getString("event_status");
+        String deliveryStatus = deliveryStatus(
+                eventStatus, recipients, pending, sent, failed, read, skipped);
+        boolean complete = !"PROCESSING".equals(deliveryStatus);
+        boolean sentSuccessfully = "DELIVERED".equals(deliveryStatus);
+        return new PublicationDeliveryStatusResponse(
+                true,
+                deliveryStatus,
+                complete,
+                sentSuccessfully,
+                (UUID) rs.getObject("event_audit_id"),
+                (UUID) rs.getObject("notification_id"),
+                rs.getString("event_id"),
+                rs.getString("idempotency_key"),
+                rs.getString("trace_id"),
+                rs.getString("correlation_id"),
+                rs.getString("source_type"),
+                rs.getString("source_id"),
+                eventStatus,
+                rs.getInt("event_retry_count"),
+                recipients,
+                pending,
+                sent,
+                failed,
+                read,
+                skipped,
+                toOdt(rs.getTimestamp("created_at")),
+                toOdt(rs.getTimestamp("processed_at")));
+    }
+
+    private static String deliveryStatus(String eventStatus, long recipients, long pending,
+                                         long sent, long failed, long read, long skipped) {
+        if ("FAILED".equals(eventStatus) || "DLQ".equals(eventStatus)) return "EVENT_FAILED";
+        if ("PROCESSING".equals(eventStatus)) return "PROCESSING";
+        if (recipients == 0) return "NO_RECIPIENTS";
+        if (failed > 0 && sent + read + skipped > 0) return "PARTIAL_FAILURE";
+        if (failed > 0) return "FAILED";
+        if (pending > 0) return "PROCESSING";
+        if (skipped == recipients) return "SKIPPED";
+        if (skipped > 0) return "PARTIAL_DELIVERY";
+        if (sent + read == recipients) return "DELIVERED";
+        return "PROCESSING";
     }
 
     private static OffsetDateTime toOdt(java.sql.Timestamp ts) {

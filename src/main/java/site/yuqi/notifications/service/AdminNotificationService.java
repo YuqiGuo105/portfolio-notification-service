@@ -10,6 +10,7 @@ import site.yuqi.notifications.dto.AdminSubscriberListResponse;
 import site.yuqi.notifications.dto.AdminDeliveryItem;
 import site.yuqi.notifications.dto.AdminDeliveryListResponse;
 import site.yuqi.notifications.dto.AdminDeliveryStatsResponse;
+import site.yuqi.notifications.dto.PublicationDeliveryStatusResponse;
 import site.yuqi.notifications.exception.NotFoundException;
 import site.yuqi.notifications.repository.NotificationRecipientRepository;
 import site.yuqi.notifications.repository.AdminAlertSubscriptionRepository;
@@ -94,6 +95,18 @@ public class AdminNotificationService {
                 recipientRepository.listForAdmin(normalizedChannel, normalizedStatus, safeLimit),
                 recipientRepository.countForAdmin(normalizedChannel, normalizedStatus),
                 safeLimit);
+    }
+
+    public PublicationDeliveryStatusResponse getPublicationDelivery(String identifier) {
+        String normalized = identifier == null ? "" : identifier.trim();
+        if (normalized.isEmpty() || normalized.length() > 256) {
+            throw new IllegalArgumentException("A valid publication identifier is required");
+        }
+        return recipientRepository.findPublicationDelivery(normalized)
+                .orElseGet(() -> new PublicationDeliveryStatusResponse(
+                        false, "NOT_OBSERVED", false, false,
+                        null, null, null, null, null, null, null, null,
+                        null, 0, 0, 0, 0, 0, 0, 0, null, null));
     }
 
     @Transactional

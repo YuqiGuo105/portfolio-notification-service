@@ -369,6 +369,55 @@ class NotificationFlowTest {
     }
 
     @Test
+    void publicationDeliveryEndpointCorrelatesContentEventAndEmailOutcome() throws Exception {
+        subscribe("publication@example.com", List.of("ARTICLE_UPDATES"), List.of("EMAIL"));
+        String sourceId = "blog_delivery_status";
+        String eventId = "evt_delivery_status";
+        String idempotencyKey = "ARTICLE_PUBLISHED:" + sourceId + ":v1";
+        String json = mapper.writeValueAsString(new ContentEvent(
+                eventId, "ARTICLE_PUBLISHED", "ARTICLE_UPDATES",
+                "BLOG", sourceId, "Delivery status article", "preview",
+                "/blog-single/" + sourceId, OffsetDateTime.now(),
+                idempotencyKey, Map.of()));
+
+        assertEquals(Outcome.DONE, processor.process(json, "portfolio.content-events", 0, "151"));
+
+        mockMvc.perform(get("/api/admin/notifications/publication-delivery")
+                        .header("X-Internal-Token", "test-internal-token")
+                        .param("identifier", sourceId))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.observed").value(true))
+                .andExpect(jsonPath("$.deliveryStatus").value("PROCESSING"))
+                .andExpect(jsonPath("$.emailRecipients").value(1))
+                .andExpect(jsonPath("$.pending").value(1))
+                .andExpect(jsonPath("$.eventId").value(eventId))
+                .andExpect(jsonPath("$.idempotencyKey").value(idempotencyKey));
+
+        jdbc.update("update public.notification_recipients set status = 'SENT', sent_at = now() " +
+                "where channel = 'EMAIL'");
+
+        mockMvc.perform(get("/api/admin/notifications/publication-delivery")
+                        .header("X-Internal-Token", "test-internal-token")
+                        .param("identifier", eventId))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.deliveryStatus").value("DELIVERED"))
+                .andExpect(jsonPath("$.complete").value(true))
+                .andExpect(jsonPath("$.sentSuccessfully").value(true))
+                .andExpect(jsonPath("$.sent").value(1));
+    }
+
+    @Test
+    void publicationDeliveryEndpointReturnsNotObservedWithoutLeakingData() throws Exception {
+        mockMvc.perform(get("/api/admin/notifications/publication-delivery")
+                        .header("X-Internal-Token", "test-internal-token")
+                        .param("identifier", "unknown-publication"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.observed").value(false))
+                .andExpect(jsonPath("$.deliveryStatus").value("NOT_OBSERVED"))
+                .andExpect(jsonPath("$.emailRecipients").value(0));
+    }
+
+    @Test
     void adminRetryRequeuesOnlyFailedDeliveryAndResetsAutomaticRetryState() throws Exception {
         SubscribeResponse subscriber = subscribe();
         UUID notificationId = UUID.randomUUID();

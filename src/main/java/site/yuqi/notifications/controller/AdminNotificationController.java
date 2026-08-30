@@ -18,6 +18,7 @@ import site.yuqi.notifications.dto.AdminSubscriberListResponse;
 import site.yuqi.notifications.dto.AdminDeliveryItem;
 import site.yuqi.notifications.dto.AdminDeliveryListResponse;
 import site.yuqi.notifications.dto.AdminDeliveryStatsResponse;
+import site.yuqi.notifications.dto.PublicationDeliveryStatusResponse;
 import site.yuqi.notifications.dto.UpdateSubscriberStatusRequest;
 import site.yuqi.notifications.dto.UpsertAdminAlertSubscriptionRequest;
 import site.yuqi.notifications.service.AdminNotificationService;
@@ -68,6 +69,12 @@ public class AdminNotificationController {
             @RequestParam(value = "status", defaultValue = "FAILED") String status,
             @RequestParam(value = "limit", defaultValue = "50") int limit) {
         return ResponseEntity.ok(service.listDeliveries(channel, status, limit));
+    }
+
+    @GetMapping("/notifications/publication-delivery")
+    public ResponseEntity<PublicationDeliveryStatusResponse> getPublicationDelivery(
+            @RequestParam("identifier") String identifier) {
+        return ResponseEntity.ok(service.getPublicationDelivery(identifier));
     }
 
     @PostMapping("/notifications/deliveries/{recipientId}/retry")
