@@ -32,6 +32,7 @@ public class ContentEventProcessor {
     private final ObjectMapper objectMapper;
     private final EmailPreviewService previewService;
     private final OperationEventPublisher operations;
+    private final WebhookService webhooks;
     private final String baseUrl;
 
     public ContentEventProcessor(ContentEventAuditRepository auditRepo,
@@ -42,6 +43,7 @@ public class ContentEventProcessor {
                                  ObjectMapper objectMapper,
                                  EmailPreviewService previewService,
                                  OperationEventPublisher operations,
+                                 WebhookService webhooks,
                                  @Value("${portfolio.base-url:https://www.yuqi.site}") String baseUrl) {
         this.auditRepo = auditRepo;
         this.prefRepo = prefRepo;
@@ -51,6 +53,7 @@ public class ContentEventProcessor {
         this.objectMapper = objectMapper;
         this.previewService = previewService;
         this.operations = operations;
+        this.webhooks = webhooks;
         this.baseUrl = baseUrl;
     }
 
@@ -115,6 +118,12 @@ public class ContentEventProcessor {
 
         try {
             fanOut(event, auditId);
+            String webhookType = switch (event.effectiveEventType()) {
+                case "ANALYTICS_ALERT_TRIGGERED" -> "ANALYTICS_ALERT_TRIGGERED";
+                case "COMMENT_CREATED" -> "COMMENT_CREATED";
+                default -> "PUBLICATION_COMPLETED";
+            };
+            webhooks.enqueue(event.eventId(), webhookType, rawJson);
             auditRepo.markDone(auditId);
             operations.publishAfterCommit(event.traceId(), event.correlationId(), event.eventId(),
                     event.idempotencyKey(), "notification.fanout.completed", "SUCCEEDED",
@@ -131,13 +140,24 @@ public class ContentEventProcessor {
                     event.idempotencyKey(), "notification.fanout.failed", "FAILED",
                     event.sourceType(), event.sourceId(), event.sourceVersion(), 1, null,
                     java.util.Map.of("topic", event.topic(), "errorType", fanErr.getClass().getSimpleName()));
+            try {
+                webhooks.enqueuePublicationFailure(event.eventId(), event.sourceId(), fanErr.getMessage());
+            } catch (Exception webhookError) {
+                log.warn("{\"event\":\"failure_webhook_enqueue_failed\",\"eventId\":\"{}\",\"err\":\"{}\"}",
+                        event.eventId(), webhookError.getMessage());
+            }
             TransactionAspectSupport.currentTransactionStatus().setRollbackOnly();
             return Outcome.RETRY;
         }
     }
 
     private void fanOut(ContentEvent event, UUID auditId) {
-        if ("ADMIN_ALERTS".equals(event.topic())) {
+        if ("NONE".equals(event.effectiveAudience())) {
+            log.info("{\"event\":\"notification_suppressed\",\"idempotencyKey\":\"{}\"}",
+                    event.idempotencyKey());
+            return;
+        }
+        if ("ADMIN_ALERTS".equals(event.topic()) || "ADMINS_ONLY".equals(event.effectiveAudience())) {
             fanOutAdminAlert(event, auditId);
             return;
         }

@@ -65,4 +65,19 @@ class ContentEventTest {
         assertFalse(ContentEvent.isAllowedTopic(null));
         assertFalse(ContentEvent.isAllowedTopic("OTHER"));
     }
+
+    @Test
+    void audienceDefaultsToSubscribersAndFalseSuppressesDelivery() {
+        assertEquals("ALL_SUBSCRIBERS", valid().effectiveAudience());
+        ContentEvent suppressed = new ContentEvent("e", null, null, null, 1,
+                "ARTICLE_PUBLISHED", "ARTICLE_UPDATES", "BLOG", "1", 2,
+                "title", "summary", "/blog/1", null, "key", false,
+                "ALL_SUBSCRIBERS", Map.of());
+        assertEquals("NONE", suppressed.effectiveAudience());
+    }
+
+    @Test
+    void commentEventsAreSupportedForWebhookSubscriptions() {
+        assertTrue(ContentEvent.isAllowedEventType("COMMENT_CREATED"));
+    }
 }

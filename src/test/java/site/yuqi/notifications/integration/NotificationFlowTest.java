@@ -50,6 +50,8 @@ class NotificationFlowTest {
 
     @BeforeEach
     void cleanup() {
+        jdbc.update("delete from public.mcp_webhook_deliveries");
+        jdbc.update("delete from public.mcp_webhook_subscriptions");
         jdbc.update("delete from public.notification_recipients");
         jdbc.update("delete from public.notifications");
         jdbc.update("delete from public.content_event_audit");
@@ -266,6 +268,39 @@ class NotificationFlowTest {
         NotificationListResponse bobList =
                 notificationService.listForSubscriber(b.subscriberId(), b.subscriberToken(), false);
         assertEquals(1, bobList.items().size());
+    }
+
+    @Test
+    void suppressedPublicationIsAuditedAndDoesNotCreateRecipients() throws Exception {
+        subscribe("alice@example.com", List.of("ARTICLE_UPDATES"), List.of("WEB", "EMAIL"));
+        ContentEvent event = new ContentEvent("evt-silent", null, null, null, 1,
+                "ARTICLE_UPDATED", "ARTICLE_UPDATES", "BLOG", "blog-1", 3,
+                "Typo correction", "Spelling only", "/blog/blog-1", OffsetDateTime.now(),
+                "ARTICLE_UPDATED:blog-1:v3", false, "NONE", Map.of());
+
+        assertEquals(Outcome.DONE, processor.process(mapper.writeValueAsString(event), "content", 0, "1"));
+        assertEquals(0, jdbc.queryForObject("select count(*) from public.notifications", Integer.class));
+        assertEquals("DONE", jdbc.queryForObject(
+                "select status from public.content_event_audit where idempotency_key=?", String.class,
+                event.idempotencyKey()));
+    }
+
+    @Test
+    void completedPublicationEnqueuesMatchingWebhookOnce() throws Exception {
+        UUID subscriptionId = UUID.randomUUID();
+        jdbc.update("insert into public.mcp_webhook_subscriptions " +
+                        "(id, callback_url, event_types, description) values (?, ?, ?, ?)",
+                subscriptionId, "https://8.8.8.8/hook", "PUBLICATION_COMPLETED", "Codex");
+        ContentEvent event = new ContentEvent("evt-hook", "ARTICLE_PUBLISHED", "ARTICLE_UPDATES",
+                "BLOG", "blog-hook", "Webhook article", "Summary", "/blog/blog-hook",
+                OffsetDateTime.now(), "ARTICLE_PUBLISHED:blog-hook:v1", Map.of());
+        String payload = mapper.writeValueAsString(event);
+
+        assertEquals(Outcome.DONE, processor.process(payload, "content", 0, "2"));
+        assertEquals(Outcome.DONE, processor.process(payload, "content", 0, "3"));
+        assertEquals(1, jdbc.queryForObject(
+                "select count(*) from public.mcp_webhook_deliveries where subscription_id=?",
+                Integer.class, subscriptionId));
     }
 
     @Test

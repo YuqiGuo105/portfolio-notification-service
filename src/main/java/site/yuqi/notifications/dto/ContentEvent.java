@@ -37,6 +37,8 @@ public record ContentEvent(
         String url,
         @JsonAlias({"occurredAt"}) OffsetDateTime createdAt,
         String idempotencyKey,
+        Boolean notifySubscribers,
+        String audience,
         Map<String, Object> metadata
 ) {
     /** Backwards-compatible constructor for the legacy HTTP and Kafka payload shape. */
@@ -53,7 +55,7 @@ public record ContentEvent(
             String idempotencyKey,
             Map<String, Object> metadata) {
         this(eventId, null, null, null, 1, eventType, topic, sourceType, sourceId,
-                null, title, summary, url, createdAt, idempotencyKey, metadata);
+                null, title, summary, url, createdAt, idempotencyKey, null, null, metadata);
     }
 
     /**
@@ -83,6 +85,16 @@ public record ContentEvent(
                 && isAllowedTopic(topic);
     }
 
+    public String effectiveAudience() {
+        if (Boolean.FALSE.equals(notifySubscribers)) return "NONE";
+        if (audience == null || audience.isBlank()) return "ALL_SUBSCRIBERS";
+        String value = audience.trim().toUpperCase();
+        return switch (value) {
+            case "ALL_SUBSCRIBERS", "ADMINS_ONLY", "NONE" -> value;
+            default -> "ALL_SUBSCRIBERS";
+        };
+    }
+
     private static boolean notBlank(String s) {
         return s != null && !s.isBlank();
     }
@@ -95,6 +107,7 @@ public record ContentEvent(
             case "FEATURE_RELEASED":
             case "JOB_POSITION_UPDATED":
             case "ANALYTICS_ALERT_TRIGGERED":
+            case "COMMENT_CREATED":
                 return true;
             default:
                 return false;

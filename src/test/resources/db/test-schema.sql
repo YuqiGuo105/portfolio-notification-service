@@ -6,6 +6,8 @@ create schema if not exists public;
 set schema public;
 
 drop table if exists public.notification_recipients;
+drop table if exists public.mcp_webhook_deliveries;
+drop table if exists public.mcp_webhook_subscriptions;
 drop table if exists public.notifications;
 drop table if exists public.content_event_audit;
 drop table if exists public.admin_alert_subscriptions;
@@ -101,4 +103,31 @@ create table public.notification_recipients (
     updated_at        timestamp with time zone not null default current_timestamp,
     foreign key (notification_id) references public.notifications(id) on delete cascade,
     foreign key (subscriber_id) references public.subscribers(id) on delete cascade
+);
+
+create table public.mcp_webhook_subscriptions (
+    id uuid primary key,
+    callback_url varchar(2048) not null,
+    event_types varchar(1024) not null,
+    description varchar(255),
+    status varchar(24) not null default 'ACTIVE',
+    created_at timestamp with time zone not null default current_timestamp,
+    updated_at timestamp with time zone not null default current_timestamp
+);
+
+create table public.mcp_webhook_deliveries (
+    id uuid primary key,
+    subscription_id uuid not null,
+    event_id varchar(255) not null,
+    event_type varchar(64) not null,
+    payload clob not null,
+    status varchar(24) not null default 'PENDING',
+    attempt int not null default 0,
+    next_retry_at timestamp with time zone not null default current_timestamp,
+    response_code int,
+    last_error clob,
+    created_at timestamp with time zone not null default current_timestamp,
+    delivered_at timestamp with time zone,
+    foreign key (subscription_id) references public.mcp_webhook_subscriptions(id) on delete cascade,
+    unique (subscription_id, event_id, event_type)
 );
