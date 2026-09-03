@@ -36,7 +36,7 @@ public class WebhookService {
     private final WebhookRepository repository;
     private final HttpClient client = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(3)).build();
 
-    @Value("${portfolio.webhooks.signing-key:${portfolio.token.pepper}}")
+    @Value("${portfolio.webhooks.signing-key:dev-only-webhook-signing-key-change-me}")
     private String signingKey;
 
     public WebhookSubscriptionItem create(WebhookSubscriptionRequest request) {

@@ -110,10 +110,16 @@ portfolio:
   base-url: ${PORTFOLIO_BASE_URL:https://www.yuqi.site}
   internal-token: ${INTERNAL_API_TOKEN:}
   email:
+    from: ${SMTP_FROM:noreply@yuqi.site}
+    preview:
+      max-characters: ${EMAIL_PREVIEW_MAX_CHARACTERS:320}
     dispatch:
       concurrency: ${EMAIL_DISPATCH_CONCURRENCY:4}
       queue-capacity: ${EMAIL_DISPATCH_QUEUE_CAPACITY:20}
       batch-timeout-seconds: ${EMAIL_DISPATCH_BATCH_TIMEOUT_SECONDS:90}
+      interval-ms: ${EMAIL_DISPATCH_INTERVAL_MS:15000}
+      batch-size: ${EMAIL_DISPATCH_BATCH_SIZE:20}
+      max-retry: ${EMAIL_DISPATCH_MAX_RETRY:5}
   swagger:
     # Supabase JWT secret (from Supabase Dashboard → Project Settings → API → JWT Secret).
     # BearerTokenValidator uses this to verify Supabase access tokens. Property name
@@ -129,6 +135,30 @@ portfolio:
     # Leave empty to skip audience verification (less strict but still validates
     # signature + email).
     google-client-id: ${GOOGLE_CLIENT_ID:}
+  allowed-origins: ${ALLOWED_ORIGINS:https://www.yuqi.site,http://localhost:3000}
+  operations:
+    enabled: ${OPERATION_EVENTS_ENABLED:true}
+    ingest-url: ${OPERATIONS_INGEST_URL:}
+    internal-token: ${INTERNAL_API_TOKEN:}
+    timeout-ms: ${OPERATIONS_INGEST_TIMEOUT_MS:750}
+  kafka:
+    retry-interval-ms: ${KAFKA_RETRY_INTERVAL_MS:2000}
+    content-events-topic: ${KAFKA_TOPIC_CONTENT_EVENTS:portfolio.content-events}
+    dlq-topic: ${KAFKA_TOPIC_DLQ:portfolio.dlq}
+    notification:
+      article-updates-topic: ${KAFKA_TOPIC_NOTIFICATION_ARTICLE:content.notification.article-updates.v1}
+      feature-updates-topic: ${KAFKA_TOPIC_NOTIFICATION_FEATURE:content.notification.feature-updates.v1}
+      job-updates-topic: ${KAFKA_TOPIC_NOTIFICATION_JOBS:content.notification.job-updates.v1}
+  token:
+    pepper: ${TOKEN_PEPPER:dev-only-pepper-change-me}
+  webhooks:
+    signing-key: ${WEBHOOK_SIGNING_KEY:${TOKEN_PEPPER:dev-only-webhook-signing-key-change-me}}
+  unsubscribe:
+    verification:
+      ttl-seconds: ${UNSUBSCRIBE_CODE_TTL_SECONDS:600}
+      max-attempts: ${UNSUBSCRIBE_CODE_MAX_ATTEMPTS:5}
+      max-requests-per-window: ${UNSUBSCRIBE_CODE_MAX_REQUESTS:3}
+      rate-window-seconds: ${UNSUBSCRIBE_CODE_RATE_WINDOW_SECONDS:3600}
 
 springdoc:
   api-docs:
@@ -166,45 +196,6 @@ springdoc:
     contact:
       name: Yuqi Guo
       url: https://www.yuqi.site
-  allowed-origins: ${ALLOWED_ORIGINS:https://www.yuqi.site,http://localhost:3000}
-  # Shared-secret header (X-Internal-Token) required on all /api/subscriptions/* and
-  # /api/notifications/* requests. The Next.js Portfolio proxy injects this header
-  # server-side; user browsers must NEVER see this value. Generate with:
-  #   openssl rand -hex 32
-  internal-token: ${INTERNAL_API_TOKEN:}
-  operations:
-    enabled: ${OPERATION_EVENTS_ENABLED:true}
-    ingest-url: ${OPERATIONS_INGEST_URL:}
-    internal-token: ${INTERNAL_API_TOKEN:}
-    timeout-ms: ${OPERATIONS_INGEST_TIMEOUT_MS:750}
-  kafka:
-    retry-interval-ms: ${KAFKA_RETRY_INTERVAL_MS:2000}
-    content-events-topic: ${KAFKA_TOPIC_CONTENT_EVENTS:portfolio.content-events}
-    dlq-topic: ${KAFKA_TOPIC_DLQ:portfolio.dlq}
-    # Notification-domain topics published by portfolio-admin-service.
-    # The Kafka listener subscribes to all three so email/web notifications
-    # fire for BLOG / LIFE_BLOG / PROJECT / EXPERIENCE publishes.
-    notification:
-      article-updates-topic: ${KAFKA_TOPIC_NOTIFICATION_ARTICLE:content.notification.article-updates.v1}
-      feature-updates-topic: ${KAFKA_TOPIC_NOTIFICATION_FEATURE:content.notification.feature-updates.v1}
-      job-updates-topic:     ${KAFKA_TOPIC_NOTIFICATION_JOBS:content.notification.job-updates.v1}
-  token:
-    pepper: ${TOKEN_PEPPER:dev-only-pepper-change-me}
-  email:
-    from: ${SMTP_FROM:noreply@yuqi.site}
-    preview:
-      max-characters: ${EMAIL_PREVIEW_MAX_CHARACTERS:320}
-    dispatch:
-      interval-ms: ${EMAIL_DISPATCH_INTERVAL_MS:15000}
-      batch-size: ${EMAIL_DISPATCH_BATCH_SIZE:20}
-      max-retry: ${EMAIL_DISPATCH_MAX_RETRY:5}
-  unsubscribe:
-    verification:
-      ttl-seconds: ${UNSUBSCRIBE_CODE_TTL_SECONDS:600}
-      max-attempts: ${UNSUBSCRIBE_CODE_MAX_ATTEMPTS:5}
-      max-requests-per-window: ${UNSUBSCRIBE_CODE_MAX_REQUESTS:3}
-      rate-window-seconds: ${UNSUBSCRIBE_CODE_RATE_WINDOW_SECONDS:3600}
-
 logging:
   level:
     root: INFO
