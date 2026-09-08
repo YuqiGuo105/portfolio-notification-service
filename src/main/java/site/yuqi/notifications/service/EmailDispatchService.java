@@ -160,6 +160,7 @@ public class EmailDispatchService {
         }
 
         // 2. Send (multipart: HTML + plain-text fallback)
+        boolean dispatchStarted=false;
         try {
             MimeMessage mime = mailSender.createMimeMessage();
             MimeMessageHelper helper = new MimeMessageHelper(mime, true, StandardCharsets.UTF_8.name());
@@ -167,6 +168,8 @@ public class EmailDispatchService {
             helper.setTo(email);
             helper.setSubject(buildSubject(row));
             helper.setText(buildPlainBody(row), buildHtmlBody(row));
+            if(!recipientRepo.markSending(row.id(),row.nextRetryAt())) return;
+            dispatchStarted=true;
             mailSender.send(mime);
 
             if (!recipientRepo.markSent(row.id(), row.nextRetryAt())) {
@@ -179,6 +182,12 @@ public class EmailDispatchService {
             publishDelivery(row, "notification.email.delivered", "SUCCEEDED", startedNanos,
                     Map.of("channel", "EMAIL"));
         } catch (MailException | jakarta.mail.MessagingException e) {
+            if(dispatchStarted) {
+                recipientRepo.markUnknown(row.id(),row.nextRetryAt());
+                publishDelivery(row,"notification.email.outcome_unknown","UNKNOWN",startedNanos,
+                        Map.of("errorType",e.getClass().getSimpleName(),"safeToRetry",false));
+                return;
+            }
             int backoff = nextBackoff(row.retryCount());
             recordFailure(row, e.getMessage(), backoff);
             log.warn("{\"event\":\"email_failed\",\"recipientId\":\"{}\",\"backoffSec\":{},\"err\":\"{}\"}",

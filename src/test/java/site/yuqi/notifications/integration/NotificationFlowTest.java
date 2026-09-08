@@ -47,6 +47,7 @@ class NotificationFlowTest {
     @Autowired private ObjectMapper mapper;
     @Autowired private JdbcTemplate jdbc;
     @Autowired private MockMvc mockMvc;
+    @Autowired private site.yuqi.notifications.repository.NotificationRecipientRepository recipients;
 
     @BeforeEach
     void cleanup() {
@@ -439,6 +440,28 @@ class NotificationFlowTest {
                 .andExpect(jsonPath("$.complete").value(true))
                 .andExpect(jsonPath("$.sentSuccessfully").value(true))
                 .andExpect(jsonPath("$.sent").value(1));
+    }
+
+    @Test
+    void crashedSmtpDispatchIsUnknownAndCannotBeAutomaticallyReclaimed() throws Exception {
+        subscribe("smtp-window@example.com",List.of("ARTICLE_UPDATES"),List.of("EMAIL"));
+        String json=mapper.writeValueAsString(new ContentEvent("evt_smtp_window","ARTICLE_PUBLISHED","ARTICLE_UPDATES",
+                "BLOG","smtp-window","Test","preview","/test",OffsetDateTime.now(),"smtp-window-v1",Map.of()));
+        assertEquals(Outcome.DONE,processor.process(json,"test",0,"smtp-1"));
+        var claimed=recipients.claimEmailBatch(10,8);
+        assertEquals(1,claimed.size());
+        var row=claimed.get(0);
+        assertTrue(recipients.markSending(row.id(),row.nextRetryAt()));
+        assertFalse(recipients.markSending(row.id(),row.nextRetryAt()));
+        jdbc.update("update notification_recipients set next_retry_at=? where id=?",
+                java.sql.Timestamp.from(java.time.Instant.now().minusSeconds(1)),row.id());
+        assertTrue(recipients.claimEmailBatch(10,8).isEmpty());
+        assertEquals("UNKNOWN",jdbc.queryForObject("select status from notification_recipients where id=?",String.class,row.id()));
+        assertEquals(0,recipients.retryFailed(row.id()));
+        mockMvc.perform(get("/api/admin/notifications/publication-delivery")
+                .header("X-Internal-Token","test-internal-token").param("identifier","evt_smtp_window"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.deliveryStatus").value("UNKNOWN"))
+                .andExpect(jsonPath("$.complete").value(false)).andExpect(jsonPath("$.sentSuccessfully").value(false));
     }
 
     @Test

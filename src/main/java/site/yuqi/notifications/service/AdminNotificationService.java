@@ -32,7 +32,7 @@ public class AdminNotificationService {
     private static final Set<String> SUBSCRIBER_STATUSES =
             Set.of("ACTIVE", "UNSUBSCRIBED", "BOUNCED");
     private static final Set<String> DELIVERY_CHANNELS = Set.of("EMAIL", "WEB");
-    private static final Set<String> DELIVERY_STATUSES = Set.of("FAILED", "PENDING");
+    private static final Set<String> DELIVERY_STATUSES = Set.of("FAILED", "PENDING", "SENDING", "UNKNOWN");
     private static final Map<String, Integer> DELIVERY_WINDOWS =
             Map.of("1h", 1, "24h", 24, "7d", 24 * 7);
 

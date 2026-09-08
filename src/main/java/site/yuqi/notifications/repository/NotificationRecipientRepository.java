@@ -121,7 +121,8 @@ public class NotificationRecipientRepository {
                        a.created_at,
                        a.processed_at,
                        count(r.id) as email_recipients,
-                       sum(case when r.status = 'PENDING' then 1 else 0 end) as pending,
+                       sum(case when r.status in ('PENDING','SENDING') then 1 else 0 end) as pending,
+                       sum(case when r.status = 'UNKNOWN' then 1 else 0 end) as uncertain,
                        sum(case when r.status = 'SENT' then 1 else 0 end) as sent,
                        sum(case when r.status = 'FAILED' then 1 else 0 end) as failed,
                        sum(case when r.status = 'READ' then 1 else 0 end) as read_count,
@@ -218,6 +219,7 @@ public class NotificationRecipientRepository {
      * portable on H2.
      */
     public List<NotificationRecipientRow> claimEmailBatch(int batchSize, int maxRetry) {
+        jdbc.update("update notification_recipients set status='UNKNOWN',last_error='SMTP outcome unknown; verify provider delivery before retry' where status='SENDING' and next_retry_at<=now()");
         if (isPostgres()) {
             return claimEmailBatchPostgres(batchSize, maxRetry);
         }
@@ -321,8 +323,18 @@ public class NotificationRecipientRepository {
         return jdbc.update(
                 "update public.notification_recipients " +
                         "   set status = 'SENT', sent_at = now(), last_error = null, next_retry_at = null " +
-                        " where id = ? and next_retry_at = ? and status in ('PENDING','FAILED')",
+                        " where id = ? and next_retry_at = ? and status in ('PENDING','FAILED','SENDING')",
                 id, java.sql.Timestamp.from(expectedLeaseUntil.toInstant())) == 1;
+    }
+
+    public boolean markSending(UUID id, OffsetDateTime lease) {
+        return jdbc.update("update notification_recipients set status='SENDING' where id=? and next_retry_at=? and next_retry_at>now() and status in ('PENDING','FAILED')",
+                id,java.sql.Timestamp.from(lease.toInstant()))==1;
+    }
+
+    public void markUnknown(UUID id, OffsetDateTime lease) {
+        jdbc.update("update notification_recipients set status='UNKNOWN',last_error='SMTP outcome unknown; provider verification required' where id=? and next_retry_at=? and status='SENDING'",
+                id,java.sql.Timestamp.from(lease.toInstant()));
     }
 
     public boolean markFailed(UUID id, java.time.OffsetDateTime expectedLeaseUntil,
@@ -403,7 +415,8 @@ public class NotificationRecipientRepository {
         String eventStatus = rs.getString("event_status");
         String deliveryStatus = deliveryStatus(
                 eventStatus, recipients, pending, sent, failed, read, skipped);
-        boolean complete = !"PROCESSING".equals(deliveryStatus);
+        if(rs.getLong("uncertain")>0) deliveryStatus="UNKNOWN";
+        boolean complete = !"PROCESSING".equals(deliveryStatus) && !"UNKNOWN".equals(deliveryStatus);
         boolean sentSuccessfully = "DELIVERED".equals(deliveryStatus);
         return new PublicationDeliveryStatusResponse(
                 true,
