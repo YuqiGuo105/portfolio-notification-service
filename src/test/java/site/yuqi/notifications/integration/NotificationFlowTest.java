@@ -48,9 +48,12 @@ class NotificationFlowTest {
     @Autowired private JdbcTemplate jdbc;
     @Autowired private MockMvc mockMvc;
     @Autowired private site.yuqi.notifications.repository.NotificationRecipientRepository recipients;
+    @Autowired private site.yuqi.notifications.service.EmailDispatchService emailDispatch;
+    @Autowired private CapturingMailSender mailSender;
 
     @BeforeEach
     void cleanup() {
+        mailSender.messages.clear();
         jdbc.update("delete from public.mcp_webhook_deliveries");
         jdbc.update("delete from public.mcp_webhook_subscriptions");
         jdbc.update("delete from public.notification_recipients");
@@ -371,6 +374,77 @@ class NotificationFlowTest {
     }
 
     @Test
+    void visitorAlertKeepsEvidenceThroughFanoutAndMimeDelivery() throws Exception {
+        subscribe("admin@example.com", List.of("ARTICLE_UPDATES"), List.of("WEB"));
+        adminNotificationService.upsertAdminAlertSubscription("admin@example.com", true);
+        String detail = "Condition: count >= 1; measured 1\n"
+                + "Window start: 2026-09-10 16:25:00 UTC\n"
+                + "Alert detected at: 2026-09-10 19:00:00 UTC\n\nVisit 1\n"
+                + "Occurred at (event time): 2026-09-10 16:26:37 UTC\n"
+                + "Received at (server time): 2026-09-10 16:26:39 UTC\n"
+                + "Approximate location: Austin, TX, US\nPage: /cv\nClient: desktop / Chrome\n"
+                + "Event ID: replayed-austin-visit\n"
+                + "Location is approximate city/region-level network geolocation, not a street address.\n"
+                + "Administrator sign-in is required to view visitor records.";
+        String json = mapper.writeValueAsString(new ContentEvent(
+                "detail-evt", "ANALYTICS_ALERT_TRIGGERED", "ADMIN_ALERTS", "ALERT", "1",
+                "Visitor from Texas", detail, "/admin/visitors", OffsetDateTime.now(), "incident:detail", Map.of()));
+        String payloadFile = System.getProperty("alert.e2e.payload");
+        if (payloadFile != null) json = java.nio.file.Files.readString(java.nio.file.Path.of(payloadFile));
+        String expected = mapper.readTree(json).get("summary").asText();
+        assertTrue(expected.length() > 320);
+        assertEquals(Outcome.DONE, processor.process(json, "http-trigger", null, "detail"));
+        assertEquals(Outcome.DONE, processor.process(json, "http-trigger", null, "detail"));
+        assertEquals(expected, jdbc.queryForObject("select body from public.notifications", String.class));
+        assertEquals(1, emailDispatch.dispatchOnce());
+        assertEquals(0, emailDispatch.dispatchOnce());
+        assertEquals(1, mailSender.messages.size());
+        var mime = mailSender.messages.getFirst();
+        assertFalse(mime.getSubject().contains("Admin Alert: Alert:"));
+        String plain = mimePart(mime, "text/plain");
+        String html = mimePart(mime, "text/html");
+        assertTrue(plain.contains(expected));
+        assertTrue(plain.contains("administrator sign-in required"));
+        assertTrue(html.contains("count &gt;= 1; measured 1"));
+        assertTrue(html.contains("replayed-austin-visit"));
+        assertTrue(html.contains("View Visitor Records"));
+        assertFalse(html.contains("Read the Full Post"));
+        assertEquals("SENT", jdbc.queryForObject("select status from public.notification_recipients", String.class));
+        var preview = java.nio.file.Path.of("target/test-artifacts/visitor-alert-email.html");
+        java.nio.file.Files.createDirectories(preview.getParent());
+        java.nio.file.Files.writeString(preview, html);
+    }
+
+    @Test
+    void adminAlertEscapesUntrustedEvidenceAndDoesNotLinkToExternalSites() throws Exception {
+        subscribe("admin@example.com", List.of("ARTICLE_UPDATES"), List.of("WEB"));
+        adminNotificationService.upsertAdminAlertSubscription("admin@example.com", true);
+        String json = mapper.writeValueAsString(new ContentEvent(
+                "unsafe-detail", "ANALYTICS_ALERT_TRIGGERED", "ADMIN_ALERTS", "ALERT", "1",
+                "Visitor alert", "Page: <img src=x onerror=alert(1)>\nCondition: count <= 2",
+                "https://untrusted.example/admin/visitors", OffsetDateTime.now(), "incident:unsafe", Map.of()));
+        assertEquals(Outcome.DONE, processor.process(json, "http-trigger", null, "unsafe"));
+        assertNull(jdbc.queryForObject("select url from public.notifications", String.class));
+        assertEquals(1, emailDispatch.dispatchOnce());
+        String html = mimePart(mailSender.messages.getFirst(), "text/html");
+        assertTrue(html.contains("&lt;img src=x onerror=alert(1)&gt;"));
+        assertTrue(html.contains("count &lt;= 2"));
+        assertFalse(html.contains("<img src=x"));
+        assertFalse(html.contains("https://untrusted.example"));
+    }
+
+    private static String mimePart(jakarta.mail.Part part, String type) throws Exception {
+        if (part.isMimeType(type)) return (String) part.getContent();
+        if (part.getContent() instanceof jakarta.mail.Multipart multipart) {
+            for (int i = 0; i < multipart.getCount(); i++) {
+                String found = mimePart(multipart.getBodyPart(i), type);
+                if (!found.isEmpty()) return found;
+            }
+        }
+        return "";
+    }
+
+    @Test
     void adminDeliveryEndpointsExposeStatsAndFailedRowsWithoutSubscriberIdentity() throws Exception {
         SubscribeResponse subscriber = subscribe();
         UUID notificationId = UUID.randomUUID();
@@ -563,16 +637,23 @@ class NotificationFlowTest {
         return subscriptionService.subscribe(new SubscribeRequest(email, topics, channels));
     }
 
-    /**
-     * Stub JavaMailSender so the email scheduler bean wires up; we never call dispatchOnce
-     * in this test, so no SMTP traffic happens.
-     */
+    /** Capture real MIME messages without making any external SMTP calls. */
+    static class CapturingMailSender extends org.springframework.mail.javamail.JavaMailSenderImpl {
+        final List<jakarta.mail.internet.MimeMessage> messages = new java.util.concurrent.CopyOnWriteArrayList<>();
+
+        @Override public void send(jakarta.mail.internet.MimeMessage message) {
+            try { message.saveChanges(); }
+            catch (jakarta.mail.MessagingException e) { throw new org.springframework.mail.MailPreparationException(e); }
+            messages.add(message);
+        }
+    }
+
     @org.springframework.boot.test.context.TestConfiguration
     static class TestBeans {
         @org.springframework.context.annotation.Bean
         @org.springframework.context.annotation.Primary
-        org.springframework.mail.javamail.JavaMailSender javaMailSender() {
-            return new org.springframework.mail.javamail.JavaMailSenderImpl();
+        CapturingMailSender javaMailSender() {
+            return new CapturingMailSender();
         }
     }
 }

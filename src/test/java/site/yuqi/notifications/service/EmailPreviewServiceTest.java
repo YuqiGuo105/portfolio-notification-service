@@ -4,6 +4,7 @@ import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 
 class EmailPreviewServiceTest {
 
@@ -21,5 +22,16 @@ class EmailPreviewServiceTest {
         assertFalse(preview.contains("<script"));
         assertFalse(preview.contains("System.out"));
         assertFalse(preview.contains("https://example.com"));
+    }
+
+    @Test
+    void operationalBodyRetainsComparatorsAndLinesButRemainsBounded() {
+        var service = new EmailPreviewService(120);
+        String body = "Condition: count >= 1\r\nEvent ID: event-123\n" + "Evidence\n".repeat(80);
+        assertEquals(body.replace("\r\n", "\n").strip(), service.body("ADMIN_ALERTS", body));
+        assertTrue(service.body("ARTICLE_UPDATES", body).length() <= 120);
+        assertTrue(service.body("ADMIN_ALERTS", "x".repeat(9000)).endsWith("[Details truncated]"));
+        assertEquals("", service.body("ADMIN_ALERTS", null));
+        assertEquals("ab", service.body("ADMIN_ALERTS", "a\u0000\u202eb"));
     }
 }

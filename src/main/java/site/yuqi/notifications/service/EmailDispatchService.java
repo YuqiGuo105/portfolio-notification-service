@@ -236,12 +236,14 @@ public class EmailDispatchService {
     private String buildPlainBody(NotificationRecipientRow row) {
         StringBuilder sb = new StringBuilder();
         sb.append(safe(row.notificationTitle())).append("\n\n");
-        String preview = previewService.preview(row.notificationBody());
+        String preview = previewService.body(row.notificationTopic(), row.notificationBody());
         if (notBlank(preview)) {
             sb.append(preview).append("\n\n");
         }
         if (notBlank(row.notificationUrl())) {
-            sb.append("Read more: ").append(row.notificationUrl()).append("\n\n");
+            sb.append("ADMIN_ALERTS".equals(row.notificationTopic())
+                            ? "View visitor records (administrator sign-in required): " : "Read more: ")
+                    .append(row.notificationUrl()).append("\n\n");
         }
         sb.append("---\n");
         if ("ADMIN_ALERTS".equals(row.notificationTopic())) {
@@ -259,7 +261,9 @@ public class EmailDispatchService {
 
     private String buildHtmlBody(NotificationRecipientRow row) {
         String title       = escHtml(safe(row.notificationTitle()));
-        String body        = escHtml(previewService.preview(row.notificationBody()));
+        String message     = previewService.body(row.notificationTopic(), row.notificationBody());
+        String body        = escHtml(message);
+        boolean adminAlert = "ADMIN_ALERTS".equals(row.notificationTopic());
         String url         = safe(row.notificationUrl());
         String topicBadge  = topicLabel(row.notificationTopic());
         String topicColor  = topicAccentColor(row.notificationTopic());
@@ -277,13 +281,15 @@ public class EmailDispatchService {
                        style="display:inline-block;background:%s;color:#ffffff;
                               text-decoration:none;font-size:15px;font-weight:600;
                               letter-spacing:0.4px;padding:14px 36px;border-radius:8px;">
-                      Read the Full Post &rarr;
+                      %s &rarr;
                     </a>
                   </td>
                 </tr>
-                """.formatted(escHtml(url), topicColor) : "";
+                """.formatted(escHtml(url), topicColor,
+                        adminAlert ? "View Visitor Records" : "Read the Full Post") : "";
 
-        String bodyBlock = notBlank(body) ? """
+        String bodyBlock = adminAlert && notBlank(message) ? "<tr><td>" + adminDetailsHtml(message) + "</td></tr>"
+                : notBlank(body) ? """
                 <tr>
                   <td style="padding:0 0 20px;color:#64748b;font-size:16px;
                              line-height:1.7;font-style:italic;">
@@ -420,6 +426,24 @@ public class EmailDispatchService {
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────
+
+    private static String adminDetailsHtml(String message) {
+        StringBuilder html = new StringBuilder("<table width=\"100%\" cellpadding=\"0\" cellspacing=\"0\" style=\"table-layout:fixed;border-collapse:collapse;font-size:14px;line-height:1.6;color:#475569;\">");
+        for (String line : message.split("\n")) {
+            if (line.isBlank()) continue;
+            int separator = line.indexOf(": ");
+            if (separator > 0 && separator <= 45) {
+                html.append("<tr><th align=\"left\" valign=\"top\" width=\"38%\" style=\"padding:9px 12px 9px 0;border-bottom:1px solid #e2e8f0;font-weight:600;overflow-wrap:anywhere;\">")
+                        .append(escHtml(line.substring(0, separator)))
+                        .append("</th><td valign=\"top\" style=\"padding:9px 0;border-bottom:1px solid #e2e8f0;overflow-wrap:anywhere;word-break:break-word;\">")
+                        .append(escHtml(line.substring(separator + 2))).append("</td></tr>");
+            } else {
+                html.append("<tr><td colspan=\"2\" style=\"padding:16px 0 8px;overflow-wrap:anywhere;\">")
+                        .append(escHtml(line)).append("</td></tr>");
+            }
+        }
+        return html.append("</table>").toString();
+    }
 
     private static String topicLabel(String topic) {
         return switch (safe(topic)) {

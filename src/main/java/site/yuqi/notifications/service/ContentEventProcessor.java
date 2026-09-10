@@ -195,7 +195,9 @@ public class ContentEventProcessor {
             return;
         }
         UUID notificationId = notificationRepo.insert(
-                auditId, event.topic(), event.title(), previewService.preview(event.summary()), null,
+                auditId, event.topic(), event.title(), previewService.body(event.topic(), event.summary()),
+                "ALERT".equals(event.sourceType()) && "/admin/visitors".equals(event.url())
+                        ? toAbsoluteUrl("/admin/visitors") : null,
                 event.traceId(), event.correlationId(), event.eventId(),
                 event.sourceType(), event.sourceId(), event.sourceVersion());
         int inserted = 0;
