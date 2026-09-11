@@ -260,17 +260,18 @@ public class EmailDispatchService {
     // ── HTML template ─────────────────────────────────────────────────────────
 
     private String buildHtmlBody(NotificationRecipientRow row) {
+        if ("ADMIN_ALERTS".equals(row.notificationTopic())) {
+            return VisitorAlertEmailTemplate.render(row.notificationTitle(),
+                    previewService.body(row.notificationTopic(), row.notificationBody()), row.notificationUrl());
+        }
         String title       = escHtml(safe(row.notificationTitle()));
         String message     = previewService.body(row.notificationTopic(), row.notificationBody());
         String body        = escHtml(message);
-        boolean adminAlert = "ADMIN_ALERTS".equals(row.notificationTopic());
         String url         = safe(row.notificationUrl());
         String topicBadge  = topicLabel(row.notificationTopic());
         String topicColor  = topicAccentColor(row.notificationTopic());
         String topicIcon   = topicIcon(row.notificationTopic());
-        String footerReason = "ADMIN_ALERTS".equals(row.notificationTopic())
-                ? "Private operational alert for a yuqi.site administrator."
-                : "You are receiving this email because you subscribed to <strong style=\"color:#94a3b8;\">"
+        String footerReason = "You are receiving this email because you subscribed to <strong style=\"color:#94a3b8;\">"
                     + topicBadge + "</strong> on <a href=\"https://www.yuqi.site\" style=\"color:"
                     + topicColor + ";text-decoration:none;\">yuqi.site</a>.";
 
@@ -285,11 +286,9 @@ public class EmailDispatchService {
                     </a>
                   </td>
                 </tr>
-                """.formatted(escHtml(url), topicColor,
-                        adminAlert ? "View Visitor Records" : "Read the Full Post") : "";
+                """.formatted(escHtml(url), topicColor, "Read the Full Post") : "";
 
-        String bodyBlock = adminAlert && notBlank(message) ? "<tr><td>" + adminDetailsHtml(message) + "</td></tr>"
-                : notBlank(body) ? """
+        String bodyBlock = notBlank(body) ? """
                 <tr>
                   <td style="padding:0 0 20px;color:#64748b;font-size:16px;
                              line-height:1.7;font-style:italic;">
@@ -426,24 +425,6 @@ public class EmailDispatchService {
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────
-
-    private static String adminDetailsHtml(String message) {
-        StringBuilder html = new StringBuilder("<table width=\"100%\" cellpadding=\"0\" cellspacing=\"0\" style=\"table-layout:fixed;border-collapse:collapse;font-size:14px;line-height:1.6;color:#475569;\">");
-        for (String line : message.split("\n")) {
-            if (line.isBlank()) continue;
-            int separator = line.indexOf(": ");
-            if (separator > 0 && separator <= 45) {
-                html.append("<tr><th align=\"left\" valign=\"top\" width=\"38%\" style=\"padding:9px 12px 9px 0;border-bottom:1px solid #e2e8f0;font-weight:600;overflow-wrap:anywhere;\">")
-                        .append(escHtml(line.substring(0, separator)))
-                        .append("</th><td valign=\"top\" style=\"padding:9px 0;border-bottom:1px solid #e2e8f0;overflow-wrap:anywhere;word-break:break-word;\">")
-                        .append(escHtml(line.substring(separator + 2))).append("</td></tr>");
-            } else {
-                html.append("<tr><td colspan=\"2\" style=\"padding:16px 0 8px;overflow-wrap:anywhere;\">")
-                        .append(escHtml(line)).append("</td></tr>");
-            }
-        }
-        return html.append("</table>").toString();
-    }
 
     private static String topicLabel(String topic) {
         return switch (safe(topic)) {
