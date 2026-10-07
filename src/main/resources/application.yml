@@ -107,6 +107,10 @@ management:
       application: portfolio-notification-service
 
 portfolio:
+  push:
+    public-key: ${WEB_PUSH_PUBLIC_KEY:}
+    private-key: ${WEB_PUSH_PRIVATE_KEY:}
+    subject: ${WEB_PUSH_SUBJECT:mailto:yuqi.guo17@gmail.com}
   base-url: ${PORTFOLIO_BASE_URL:https://www.yuqi.site}
   internal-token: ${INTERNAL_API_TOKEN:}
   email:

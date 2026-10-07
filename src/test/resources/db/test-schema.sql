@@ -5,6 +5,8 @@
 create schema if not exists public;
 set schema public;
 
+drop table if exists public.browser_push_deliveries;
+drop table if exists public.browser_push_subscriptions;
 drop table if exists public.notification_recipients;
 drop table if exists public.mcp_webhook_deliveries;
 drop table if exists public.mcp_webhook_subscriptions;
@@ -103,6 +105,29 @@ create table public.notification_recipients (
     updated_at        timestamp with time zone not null default current_timestamp,
     foreign key (notification_id) references public.notifications(id) on delete cascade,
     foreign key (subscriber_id) references public.subscribers(id) on delete cascade
+);
+
+create table public.browser_push_subscriptions (
+    id uuid primary key,
+    subscriber_id uuid not null references public.subscribers(id) on delete cascade,
+    endpoint varchar(2048) not null unique,
+    p256dh varchar(128) not null,
+    auth varchar(64) not null,
+    active boolean not null default true,
+    created_at timestamp with time zone not null default current_timestamp
+);
+create table public.browser_push_deliveries (
+    id uuid primary key,
+    device_id uuid not null references public.browser_push_subscriptions(id) on delete cascade,
+    notification_id uuid not null references public.notifications(id) on delete cascade,
+    status varchar(24) not null default 'PENDING',
+    attempt integer not null default 0,
+    claim_token uuid,
+    available_at timestamp with time zone not null default current_timestamp,
+    response_code integer,
+    created_at timestamp with time zone not null default current_timestamp,
+    sent_at timestamp with time zone,
+    unique(device_id, notification_id)
 );
 
 create table public.mcp_webhook_subscriptions (

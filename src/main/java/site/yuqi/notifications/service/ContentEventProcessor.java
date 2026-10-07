@@ -15,6 +15,7 @@ import site.yuqi.notifications.repository.ContentEventAuditRepository.AuditSumma
 import site.yuqi.notifications.repository.NotificationRecipientRepository;
 import site.yuqi.notifications.repository.NotificationRepository;
 import site.yuqi.notifications.repository.SubscriptionPreferenceRepository;
+import site.yuqi.notifications.repository.WebPushRepository;
 import site.yuqi.notifications.operations.OperationEventPublisher;
 
 import java.util.List;
@@ -33,6 +34,7 @@ public class ContentEventProcessor {
     private final EmailPreviewService previewService;
     private final OperationEventPublisher operations;
     private final WebhookService webhooks;
+    private final WebPushRepository webPush;
     private final String baseUrl;
 
     public ContentEventProcessor(ContentEventAuditRepository auditRepo,
@@ -44,6 +46,7 @@ public class ContentEventProcessor {
                                  EmailPreviewService previewService,
                                  OperationEventPublisher operations,
                                  WebhookService webhooks,
+                                 WebPushRepository webPush,
                                  @Value("${portfolio.base-url:https://www.yuqi.site}") String baseUrl) {
         this.auditRepo = auditRepo;
         this.prefRepo = prefRepo;
@@ -54,6 +57,7 @@ public class ContentEventProcessor {
         this.previewService = previewService;
         this.operations = operations;
         this.webhooks = webhooks;
+        this.webPush = webPush;
         this.baseUrl = baseUrl;
     }
 
@@ -178,6 +182,7 @@ public class ContentEventProcessor {
             if (p.webEnabled()) {
                 String key = notificationId + ":" + p.subscriberId() + ":WEB";
                 if (recipientRepo.insertIfAbsent(notificationId, p.subscriberId(), "WEB", key)) web++; else dupes++;
+                webPush.enqueue(notificationId, p.subscriberId());
             }
             if (p.emailEnabled()) {
                 String key = notificationId + ":" + p.subscriberId() + ":EMAIL";
