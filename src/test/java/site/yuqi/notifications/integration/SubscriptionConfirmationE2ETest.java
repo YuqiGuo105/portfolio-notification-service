@@ -65,6 +65,7 @@ class SubscriptionConfirmationE2ETest {
     @AfterAll static void closeMailbox() { if (mailbox != null) mailbox.stop(); }
 
     @Test void mailboxOwnershipIsRequiredBeforeReactivationAndCredentialRotation() throws Exception {
+        http.getRestTemplate().setRequestFactory(new org.springframework.http.client.JdkClientHttpRequestFactory());
         jdbc.update("delete from public.subscription_confirmations where email='owner@example.test'");
         var request = new SubscribeRequest("owner@example.test", List.of("ARTICLE_UPDATES"), List.of("EMAIL"));
         var original = subscriptions.subscribe(request);
