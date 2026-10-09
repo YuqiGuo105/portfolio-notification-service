@@ -8,6 +8,9 @@ import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.security.SecureRandom;
 import java.util.HexFormat;
+import java.util.UUID;
+import javax.crypto.Mac;
+import javax.crypto.spec.SecretKeySpec;
 
 @Service
 public class TokenService {
@@ -53,5 +56,26 @@ public class TokenService {
         return MessageDigest.isEqual(
                 computed.getBytes(StandardCharsets.UTF_8),
                 storedHash.getBytes(StandardCharsets.UTF_8));
+    }
+
+    /** A capability limited to unsubscribe; rotated whenever ownership is re-verified. */
+    public String emailUnsubscribeToken(UUID subscriberId, String currentUnsubscribeHash) {
+        if (currentUnsubscribeHash == null || currentUnsubscribeHash.isBlank() || pepper.isBlank()) {
+            throw new IllegalStateException("Unsubscribe signing is unavailable");
+        }
+        try {
+            Mac mac = Mac.getInstance("HmacSHA256");
+            mac.init(new SecretKeySpec(pepper.getBytes(StandardCharsets.UTF_8), "HmacSHA256"));
+            String payload = "email-unsubscribe:v1:" + subscriberId + ":" + currentUnsubscribeHash;
+            return "v1." + subscriberId + "." + HexFormat.of().formatHex(mac.doFinal(payload.getBytes(StandardCharsets.UTF_8)));
+        } catch (java.security.GeneralSecurityException e) {
+            throw new IllegalStateException("Unsubscribe signing is unavailable");
+        }
+    }
+
+    public boolean emailUnsubscribeMatches(String token, UUID id, String currentHash) {
+        if (token == null || currentHash == null || currentHash.isBlank()) return false;
+        return MessageDigest.isEqual(token.getBytes(StandardCharsets.UTF_8),
+                emailUnsubscribeToken(id, currentHash).getBytes(StandardCharsets.UTF_8));
     }
 }

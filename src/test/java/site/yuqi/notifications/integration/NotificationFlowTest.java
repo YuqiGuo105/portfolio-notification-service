@@ -157,6 +157,34 @@ class NotificationFlowTest {
     }
 
     @Test
+    void articleEmailContainsUnsubscribeOnlyCapabilityAndRejectsTampering() throws Exception {
+        SubscribeResponse subscriber = subscribe("reader@example.com", List.of("ARTICLE_UPDATES"), List.of("EMAIL"));
+        String json = mapper.writeValueAsString(new ContentEvent(
+                "article-unsubscribe", "ARTICLE_PUBLISHED", "ARTICLE_UPDATES", "BLOG", "article-1",
+                "New article", "A test article", "/blog-single/article-1", OffsetDateTime.now(), "article:1", Map.of()));
+        assertEquals(Outcome.DONE, processor.process(json, "http-trigger", null, "article"));
+        assertEquals(1, emailDispatch.dispatchOnce());
+        var mime = mailSender.messages.getFirst();
+        String header = mime.getHeader("List-Unsubscribe", null);
+        assertNotNull(header);
+        assertTrue(header.startsWith("<https://www.yuqi.site/api/subscriptions/email-unsubscribe?token=v1."));
+        assertEquals("List-Unsubscribe=One-Click", mime.getHeader("List-Unsubscribe-Post", null));
+        String token = header.substring(header.indexOf("token=") + 6, header.length() - 1);
+        assertTrue(mimePart(mime, "text/plain").contains("/subscriptions/unsubscribe#token=" + token));
+        assertTrue(mimePart(mime, "text/html").contains("Unsubscribe from updates"));
+        assertFalse(subscriptionService.unsubscribeByToken(token.substring(0, token.length() - 1)
+                + (token.endsWith("0") ? "1" : "0")));
+        assertThrows(UnauthorizedException.class, () -> subscriptionService.updatePreferences(
+                new UpdatePreferencesRequest(subscriber.subscriberId(), token,
+                        List.of(new UpdatePreferencesRequest.PreferenceItem("ARTICLE_UPDATES", false, false)))));
+        assertEquals("ACTIVE", jdbc.queryForObject("select status from public.subscribers where id = ?",
+                String.class, subscriber.subscriberId()));
+        assertTrue(subscriptionService.unsubscribeByToken(token));
+        assertEquals("UNSUBSCRIBED", jdbc.queryForObject("select status from public.subscribers where id = ?",
+                String.class, subscriber.subscriberId()));
+    }
+
+    @Test
     void verifiedUnsubscribeChangesStatusWithoutDeletingSubscriber() {
         SubscribeResponse s = subscribe();
 

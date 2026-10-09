@@ -28,10 +28,16 @@ public class SubscriptionController {
 
     private final SubscriptionService service;
     private final UnsubscribeVerificationService unsubscribeVerificationService;
+    private final site.yuqi.notifications.service.SubscriptionConfirmationService confirmations;
 
     @PostMapping
-    public ResponseEntity<SubscribeResponse> subscribe(@Valid @RequestBody SubscribeRequest req) {
-        return ResponseEntity.ok(service.subscribe(req));
+    public ResponseEntity<Map<String, String>> subscribe(@Valid @RequestBody SubscribeRequest req) {
+        return ResponseEntity.accepted().body(confirmations.request(req));
+    }
+
+    @PostMapping("/confirm")
+    public ResponseEntity<SubscribeResponse> confirm(@RequestBody Map<String, String> request) {
+        return ResponseEntity.ok(confirmations.confirm(request.get("token")));
     }
 
     @PatchMapping("/preferences")

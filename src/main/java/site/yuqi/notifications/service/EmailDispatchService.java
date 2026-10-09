@@ -32,6 +32,7 @@ public class EmailDispatchService {
     private final JavaMailSender mailSender;
     private final EmailPreviewService previewService;
     private final OperationEventPublisher operations;
+    private final TokenService tokens;
     private final String fromAddress;
     private final int batchSize;
     private final int maxRetry;
@@ -43,6 +44,7 @@ public class EmailDispatchService {
                                 JavaMailSender mailSender,
                                 EmailPreviewService previewService,
                                 OperationEventPublisher operations,
+                                TokenService tokens,
                                 @Value("${portfolio.email.from:noreply@yuqi.site}") String fromAddress,
                                 @Value("${portfolio.email.dispatch.batch-size:20}") int batchSize,
                                 @Value("${portfolio.email.dispatch.max-retry:5}") int maxRetry,
@@ -54,6 +56,7 @@ public class EmailDispatchService {
         this.mailSender = mailSender;
         this.previewService = previewService;
         this.operations = operations;
+        this.tokens = tokens;
         this.fromAddress = fromAddress;
         this.batchSize = batchSize;
         this.maxRetry = maxRetry;
@@ -133,7 +136,7 @@ public class EmailDispatchService {
                         """, row.subscriberId());
             } else {
                 subRow = jdbc.queryForMap(
-                        "select email, status from public.subscribers where id = ?",
+                        "select email, status, unsubscribe_token_hash from public.subscribers where id = ?",
                         row.subscriberId());
             }
         } catch (DataAccessException e) {
@@ -167,7 +170,18 @@ public class EmailDispatchService {
             helper.setFrom(fromAddress);
             helper.setTo(email);
             helper.setSubject(buildSubject(row));
-            helper.setText(buildPlainBody(row), buildHtmlBody(row));
+            String plain = buildPlainBody(row);
+            String html = buildHtmlBody(row);
+            if (!"ADMIN_ALERTS".equals(row.notificationTopic())) {
+                String token = tokens.emailUnsubscribeToken(row.subscriberId(), (String) subRow.get("unsubscribe_token_hash"));
+                String oneClick = "https://www.yuqi.site/api/subscriptions/email-unsubscribe?token=" + token;
+                String manual = "https://www.yuqi.site/subscriptions/unsubscribe#token=" + token;
+                mime.setHeader("List-Unsubscribe", "<" + oneClick + ">");
+                mime.setHeader("List-Unsubscribe-Post", "List-Unsubscribe=One-Click");
+                plain += "\n\nUnsubscribe: " + manual;
+                html += "<p style=\"font:14px Arial,sans-serif;text-align:center\"><a href=\"" + manual + "\">Unsubscribe from updates</a></p>";
+            }
+            helper.setText(plain, html);
             if(!recipientRepo.markSending(row.id(),row.nextRetryAt())) return;
             dispatchStarted=true;
             mailSender.send(mime);

@@ -28,6 +28,7 @@ public class SubscriptionService {
     private final NotificationRecipientRepository recipientRepo;
     private final TokenService tokens;
 
+    /** Internal activation: only call after mailbox ownership has been verified. */
     @Transactional
     public SubscribeResponse subscribe(SubscribeRequest req) {
         String email = normalizeEmail(req.email());
@@ -69,10 +70,20 @@ public class SubscriptionService {
     @Transactional
     public boolean unsubscribeByToken(String rawToken) {
         if (rawToken == null || rawToken.isBlank()) return false;
+        if (rawToken.matches("v1\\.[a-f0-9-]{36}\\.[a-f0-9]{64}")) {
+            UUID id;
+            try { id = UUID.fromString(rawToken.split("\\.")[1]); }
+            catch (IllegalArgumentException e) { return false; }
+            Subscriber signed = subscriberRepo.findById(id).orElse(null);
+            if (signed == null || !tokens.emailUnsubscribeMatches(rawToken, id, signed.unsubscribeTokenHash())) return false;
+            subscriberRepo.unsubscribeIfActive(id, "EMAIL_LINK");
+            recipientRepo.markPendingEmailSkippedForSubscriber(id);
+            return true;
+        }
         String hash = tokens.hash(rawToken);
         Subscriber s = subscriberRepo.findByUnsubscribeTokenHash(hash).orElse(null);
         if (s == null) return false;
-        subscriberRepo.setStatus(s.id(), "UNSUBSCRIBED");
+        subscriberRepo.unsubscribeIfActive(s.id(), "EMAIL_LINK");
         recipientRepo.markPendingEmailSkippedForSubscriber(s.id());
         return true;
     }
@@ -99,7 +110,7 @@ public class SubscriptionService {
 
     private static String normalizeEmail(String email) {
         if (email == null) throw new IllegalArgumentException("email required");
-        String e = email.trim().toLowerCase();
+        String e = email.trim().toLowerCase(java.util.Locale.ROOT);
         if (e.isEmpty() || !e.contains("@") || e.length() > 254) {
             throw new IllegalArgumentException("invalid email");
         }
