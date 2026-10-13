@@ -3,6 +3,8 @@ package site.yuqi.notifications.integration;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
@@ -156,11 +158,12 @@ class NotificationFlowTest {
         assertFalse(subscriptionService.unsubscribeByToken("nope"));
     }
 
-    @Test
-    void articleEmailContainsUnsubscribeOnlyCapabilityAndRejectsTampering() throws Exception {
-        SubscribeResponse subscriber = subscribe("reader@example.com", List.of("ARTICLE_UPDATES"), List.of("EMAIL"));
+    @ParameterizedTest
+    @ValueSource(strings = {"ARTICLE_UPDATES", "FEATURE_UPDATES", "JOB_UPDATES"})
+    void emailContainsVisibleUnsubscribeOnlyCapabilityAndRejectsTampering(String topic) throws Exception {
+        SubscribeResponse subscriber = subscribe("reader@example.com", List.of(topic), List.of("EMAIL"));
         String json = mapper.writeValueAsString(new ContentEvent(
-                "article-unsubscribe", "ARTICLE_PUBLISHED", "ARTICLE_UPDATES", "BLOG", "article-1",
+                "article-unsubscribe", "ARTICLE_PUBLISHED", topic, "BLOG", "article-1",
                 "New article", "A test article", "/blog-single/article-1", OffsetDateTime.now(), "article:1", Map.of()));
         assertEquals(Outcome.DONE, processor.process(json, "http-trigger", null, "article"));
         assertEquals(1, emailDispatch.dispatchOnce());
@@ -170,8 +173,27 @@ class NotificationFlowTest {
         assertTrue(header.startsWith("<https://www.yuqi.site/api/subscriptions/email-unsubscribe?token=v1."));
         assertEquals("List-Unsubscribe=One-Click", mime.getHeader("List-Unsubscribe-Post", null));
         String token = header.substring(header.indexOf("token=") + 6, header.length() - 1);
-        assertTrue(mimePart(mime, "text/plain").contains("/subscriptions/unsubscribe#token=" + token));
-        assertTrue(mimePart(mime, "text/html").contains("Unsubscribe from updates"));
+        String manualUrl = "https://www.yuqi.site/subscriptions/unsubscribe#token=" + token;
+        String plain = mimePart(mime, "text/plain");
+        String html = mimePart(mime, "text/html");
+        assertTrue(plain.contains("Unsubscribe: " + manualUrl));
+        assertTrue(plain.contains("United States"));
+        int footer = html.indexOf("<!-- footer -->");
+        int button = html.indexOf("href=\"" + manualUrl + "\"");
+        assertTrue(footer >= 0 && button > footer && button < html.indexOf("</body>"),
+                "The personalized unsubscribe button must be inside the email footer, not appended after </html>");
+        assertTrue(html.matches("(?s).*href=\"" + java.util.regex.Pattern.quote(manualUrl)
+                + "\"[^>]*>\\s*Unsubscribe\\s*</a>.*"));
+        assertTrue(html.contains("bgcolor=\"#f8fafc\""));
+        assertTrue(html.contains("color:#0f172a;text-decoration:underline"));
+        assertTrue(html.contains("Yuqi Guo &middot; United States"));
+        assertFalse(html.contains("Vancouver"));
+        assertFalse(html.contains("Canada"));
+        assertTrue(html.stripTrailing().endsWith("</html>"));
+        assertFalse(html.contains(subscriber.subscriberToken()));
+        var preview = java.nio.file.Path.of("target/test-artifacts/subscription-email-" + topic + ".html");
+        java.nio.file.Files.createDirectories(preview.getParent());
+        java.nio.file.Files.writeString(preview, html);
         assertFalse(subscriptionService.unsubscribeByToken(token.substring(0, token.length() - 1)
                 + (token.endsWith("0") ? "1" : "0")));
         assertThrows(UnauthorizedException.class, () -> subscriptionService.updatePreferences(
@@ -437,6 +459,8 @@ class NotificationFlowTest {
         assertTrue(html.contains("replayed-austin-visit"));
         assertTrue(html.contains("View Visitor Records"));
         assertFalse(html.contains("Read the Full Post"));
+        assertNull(mime.getHeader("List-Unsubscribe", null));
+        assertFalse(html.contains("/subscriptions/unsubscribe"));
         assertEquals("SENT", jdbc.queryForObject("select status from public.notification_recipients", String.class));
         var preview = java.nio.file.Path.of("target/test-artifacts/visitor-alert-email.html");
         java.nio.file.Files.createDirectories(preview.getParent());

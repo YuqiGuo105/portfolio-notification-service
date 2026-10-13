@@ -171,17 +171,16 @@ public class EmailDispatchService {
             helper.setTo(email);
             helper.setSubject(buildSubject(row));
             String plain = buildPlainBody(row);
-            String html = buildHtmlBody(row);
+            String unsubscribeUrl = null;
             if (!"ADMIN_ALERTS".equals(row.notificationTopic())) {
                 String token = tokens.emailUnsubscribeToken(row.subscriberId(), (String) subRow.get("unsubscribe_token_hash"));
                 String oneClick = "https://www.yuqi.site/api/subscriptions/email-unsubscribe?token=" + token;
-                String manual = "https://www.yuqi.site/subscriptions/unsubscribe#token=" + token;
+                unsubscribeUrl = "https://www.yuqi.site/subscriptions/unsubscribe#token=" + token;
                 mime.setHeader("List-Unsubscribe", "<" + oneClick + ">");
                 mime.setHeader("List-Unsubscribe-Post", "List-Unsubscribe=One-Click");
-                plain += "\n\nUnsubscribe: " + manual;
-                html += "<p style=\"font:14px Arial,sans-serif;text-align:center\"><a href=\"" + manual + "\">Unsubscribe from updates</a></p>";
+                plain += "\nUnsubscribe: " + unsubscribeUrl + "\n";
             }
-            helper.setText(plain, html);
+            helper.setText(plain, buildHtmlBody(row, unsubscribeUrl));
             if(!recipientRepo.markSending(row.id(),row.nextRetryAt())) return;
             dispatchStarted=true;
             mailSender.send(mime);
@@ -266,6 +265,7 @@ public class EmailDispatchService {
             sb.append("You are receiving this email because you subscribed to ")
                     .append(topicLabel(row.notificationTopic()))
                     .append(" on yuqi.site.\n");
+            sb.append("Yuqi Guo | United States\n");
         }
         sb.append("Visit: https://www.yuqi.site\n");
         return sb.toString();
@@ -273,7 +273,7 @@ public class EmailDispatchService {
 
     // ── HTML template ─────────────────────────────────────────────────────────
 
-    private String buildHtmlBody(NotificationRecipientRow row) {
+    private String buildHtmlBody(NotificationRecipientRow row, String unsubscribeUrl) {
         if ("ADMIN_ALERTS".equals(row.notificationTopic())) {
             return VisitorAlertEmailTemplate.render(row.notificationTitle(),
                     previewService.body(row.notificationTopic(), row.notificationBody()), row.notificationUrl());
@@ -285,7 +285,7 @@ public class EmailDispatchService {
         String topicBadge  = topicLabel(row.notificationTopic());
         String topicColor  = topicAccentColor(row.notificationTopic());
         String topicIcon   = topicIcon(row.notificationTopic());
-        String footerReason = "You are receiving this email because you subscribed to <strong style=\"color:#94a3b8;\">"
+        String footerReason = "You are receiving this email because you subscribed to <strong style=\"color:#e2e8f0;\">"
                     + topicBadge + "</strong> on <a href=\"https://www.yuqi.site\" style=\"color:"
                     + topicColor + ";text-decoration:none;\">yuqi.site</a>.";
 
@@ -402,12 +402,26 @@ public class EmailDispatchService {
                             </td>
                           </tr>
                           <tr>
-                            <td style="padding:24px 40px 36px;">
-                              <p style="margin:0 0 8px;font-size:13px;color:#475569;line-height:1.6;">
+                            <td align="center" style="padding:24px 24px 28px;">
+                              <p style="margin:0 0 20px;font-size:14px;color:#cbd5e1;line-height:1.6;">
                                 %s
                               </p>
-                              <p style="margin:0;font-size:12px;color:#334155;">
-                                &copy; 2025&ndash;%d Yuqi Guo &middot; Vancouver, BC
+                              <table role="presentation" cellpadding="0" cellspacing="0" border="0" align="center"
+                                     style="margin:0 auto 20px;">
+                                <tr>
+                                  <td align="center" bgcolor="#f8fafc"
+                                      style="background:#f8fafc;border:1px solid #cbd5e1;border-radius:6px;">
+                                    <a href="%s"
+                                       style="display:inline-block;padding:13px 24px;font-family:Arial,Helvetica,sans-serif;
+                                              font-size:16px;font-weight:700;line-height:22px;letter-spacing:0;
+                                              color:#0f172a;text-decoration:underline;border-radius:6px;">
+                                      Unsubscribe
+                                    </a>
+                                  </td>
+                                </tr>
+                              </table>
+                              <p style="margin:0;font-size:13px;color:#94a3b8;line-height:1.6;">
+                                &copy; 2025&ndash;%d Yuqi Guo &middot; United States
                               </p>
                             </td>
                           </tr>
@@ -434,6 +448,7 @@ public class EmailDispatchService {
                         bodyBlock,       // summary paragraph
                         ctaBlock,        // CTA button
                         footerReason,    // private admin or public subscription reason
+                        escHtml(unsubscribeUrl), // recipient-scoped link stays inside the email body
                         java.time.Year.now().getValue()  // year
                 );
     }
